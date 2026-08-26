@@ -1,0 +1,250 @@
+import React, { useEffect, useState, useCallback } from 'react';
+import {
+  View,
+  Text,
+  StyleSheet,
+  FlatList,
+  TouchableOpacity,
+  TextInput,
+  useColorScheme,
+  RefreshControl,
+  SafeAreaView,
+  StatusBar,
+} from 'react-native';
+import { useRouter } from 'expo-router';
+import { getColors } from '../src/constants/colors';
+import { DomainCard } from '../src/components/DomainCard';
+import { AddLinkModal } from '../src/components/AddLinkModal';
+import { useDb } from '../src/context/DbContext';
+import { getDomains } from '../src/db/database';
+import { Domain } from '../src/types';
+
+export default function HomeScreen() {
+  const scheme = useColorScheme();
+  const colors = getColors(scheme);
+  const router = useRouter();
+  const { db, isReady, refreshKey } = useDb();
+
+  const [domains, setDomains] = useState<Domain[]>([]);
+  const [filtered, setFiltered] = useState<Domain[]>([]);
+  const [search, setSearch] = useState('');
+  const [refreshing, setRefreshing] = useState(false);
+  const [modalVisible, setModalVisible] = useState(false);
+
+  const loadDomains = useCallback(async () => {
+    if (!db) return;
+    const data = await getDomains(db);
+    setDomains(data);
+    setFiltered(data);
+  }, [db]);
+
+  useEffect(() => {
+    if (isReady) loadDomains();
+  }, [isReady, loadDomains, refreshKey]);
+
+  useEffect(() => {
+    if (search.trim() === '') {
+      setFiltered(domains);
+    } else {
+      const q = search.toLowerCase();
+      setFiltered(domains.filter((d) => d.domain.toLowerCase().includes(q)));
+    }
+  }, [search, domains]);
+
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    await loadDomains();
+    setRefreshing(false);
+  }, [loadDomains]);
+
+  const totalLinks = domains.reduce((sum, d) => sum + d.count, 0);
+  const totalUnread = domains.reduce((sum, d) => sum + d.unread_count, 0);
+
+  return (
+    <SafeAreaView style={[styles.container, { backgroundColor: colors.bg }]}>
+      <StatusBar barStyle={scheme === 'dark' ? 'light-content' : 'dark-content'} />
+
+      {/* Header */}
+      <View style={styles.header}>
+        <View>
+          <Text style={[styles.appName, { color: colors.text }]}>Rungorizer</Text>
+          <Text style={[styles.subtitle, { color: colors.textSecondary }]}>
+            {totalLinks} link • {totalUnread} okunmamış
+          </Text>
+        </View>
+        <View style={styles.headerActions}>
+          <TouchableOpacity
+            style={[styles.iconBtn, { backgroundColor: colors.card, borderColor: colors.border }]}
+            onPress={() => router.push('/search')}
+          >
+            <Text style={styles.iconBtnText}>🔍</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.iconBtn, { backgroundColor: colors.card, borderColor: colors.border }]}
+            onPress={() => router.push('/favorites')}
+          >
+            <Text style={styles.iconBtnText}>⭐</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+
+      {/* Search bar */}
+      <View style={[styles.searchBar, { backgroundColor: colors.inputBg }]}>
+        <Text style={styles.searchIcon}>🔍</Text>
+        <TextInput
+          style={[styles.searchInput, { color: colors.text }]}
+          value={search}
+          onChangeText={setSearch}
+          placeholder="Domain ara..."
+          placeholderTextColor={colors.textTertiary}
+          clearButtonMode="while-editing"
+        />
+      </View>
+
+      {/* Domains List */}
+      <FlatList
+        data={filtered}
+        keyExtractor={(item) => item.domain}
+        renderItem={({ item }) => (
+          <DomainCard
+            domain={item}
+            onPress={() => router.push(`/domain/${encodeURIComponent(item.domain)}`)}
+          />
+        )}
+        ListEmptyComponent={
+          <View style={styles.empty}>
+            <Text style={styles.emptyIcon}>🔗</Text>
+            <Text style={[styles.emptyTitle, { color: colors.text }]}>Henüz link yok</Text>
+            <Text style={[styles.emptySubtitle, { color: colors.textSecondary }]}>
+              Tarayıcıdan bir link paylaşın ya da aşağıdaki + butonuna basın
+            </Text>
+          </View>
+        }
+        contentContainerStyle={filtered.length === 0 ? styles.emptyContainer : styles.list}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+        }
+      />
+
+      {/* FAB */}
+      <TouchableOpacity
+        style={[styles.fab, { backgroundColor: colors.accent }]}
+        onPress={() => setModalVisible(true)}
+      >
+        <Text style={styles.fabText}>+</Text>
+      </TouchableOpacity>
+
+      <AddLinkModal
+        visible={modalVisible}
+        onClose={() => setModalVisible(false)}
+        onAdded={() => {
+          loadDomains();
+        }}
+      />
+    </SafeAreaView>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+  },
+  header: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingTop: 16,
+    paddingBottom: 8,
+  },
+  appName: {
+    fontSize: 28,
+    fontWeight: '800',
+    letterSpacing: -0.5,
+  },
+  subtitle: {
+    fontSize: 13,
+    marginTop: 2,
+  },
+  headerActions: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  iconBtn: {
+    width: 38,
+    height: 38,
+    borderRadius: 12,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  iconBtnText: {
+    fontSize: 16,
+  },
+  searchBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginHorizontal: 16,
+    marginVertical: 8,
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    height: 44,
+  },
+  searchIcon: {
+    fontSize: 14,
+    marginRight: 8,
+  },
+  searchInput: {
+    flex: 1,
+    fontSize: 15,
+  },
+  list: {
+    paddingVertical: 8,
+    paddingBottom: 100,
+  },
+  emptyContainer: {
+    flex: 1,
+  },
+  empty: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 32,
+    paddingTop: 80,
+  },
+  emptyIcon: {
+    fontSize: 56,
+    marginBottom: 16,
+  },
+  emptyTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+    marginBottom: 8,
+  },
+  emptySubtitle: {
+    fontSize: 14,
+    textAlign: 'center',
+    lineHeight: 20,
+  },
+  fab: {
+    position: 'absolute',
+    bottom: 32,
+    right: 24,
+    width: 58,
+    height: 58,
+    borderRadius: 29,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.25,
+    shadowRadius: 8,
+    elevation: 8,
+  },
+  fabText: {
+    fontSize: 28,
+    color: '#fff',
+    fontWeight: '300',
+    lineHeight: 32,
+  },
+});

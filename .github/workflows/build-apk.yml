@@ -1,0 +1,82 @@
+name: Build Android APK & Release
+
+on:
+  push:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build Android APK
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 🏗 Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: ⚙️ Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: ☕ Setup Java JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'zulu'
+          java-version: '17'
+
+      - name: 💾 Cache Gradle Packages
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ runner.os }}-${{ hashFiles('package-lock.json', 'app.json') }}
+          restore-keys: |
+            gradle-${{ runner.os }}-
+
+      - name: 📦 Install Dependencies
+        run: npm install --legacy-peer-deps
+
+      - name: 🛠 Prebuild & Build APK
+        run: |
+          npx expo prebuild --platform android --clean --no-install
+          cd android
+          chmod +x gradlew
+          ./gradlew assembleRelease --no-daemon --build-cache
+          cd ..
+          mkdir -p build-output
+          cp android/app/build/outputs/apk/release/app-release.apk build-output/Rungorizer-v1.0.${{ github.run_number }}.apk
+          cp android/app/build/outputs/apk/release/app-release.apk build-output/Rungorizer.apk
+
+      - name: 📤 Upload APK Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Rungorizer-v1.0.${{ github.run_number }}
+          path: build-output/Rungorizer.apk
+
+      - name: 🏷 Create Release & Upload APK
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v1.0.${{ github.run_number }}
+          name: Rungorizer v1.0.${{ github.run_number }}
+          body: |
+            ## 🚀 Rungorizer v1.0.${{ github.run_number }}
+            
+            ### 📱 Özellikler:
+            - 📂 **Domain Klasörleri:** Kaydedilen linkleri domainlerine göre otomatik gruplandırma
+            - 🔗 **Share Intent:** Tarayıcı ve diğer uygulamalardan doğrudan link paylaşımı
+            - 🕷️ **Otomatik Metadata:** Başlık, açıklama, favicon ve og:image çekme
+            - 💾 **SQLite:** Hızlı ve güvenli yerel veri saklama
+            - ⭐ **Favoriler & Okundu Durumu:** Kolay yönetim ve takip
+            - 🔍 **Arama:** Başlık, açıklama ve domain içinde gerçek zamanlı filtreleme
+            - 🌙 **Tema Desteği:** Açık ve Koyu mod uyumu
+          files: |
+            build-output/Rungorizer.apk
+            build-output/Rungorizer-v1.0.${{ github.run_number }}.apk
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
