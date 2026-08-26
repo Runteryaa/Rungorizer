@@ -28,7 +28,6 @@ class ShareActivity : Activity() {
         overridePendingTransition(0, 0)
         super.onCreate(savedInstanceState)
 
-        val intent = intent
         val action = intent?.action
         val type = intent?.type
 
@@ -43,7 +42,6 @@ class ShareActivity : Activity() {
             }
         }
 
-        // Fallback — just open main app
         forwardToMainActivity()
     }
 
@@ -53,6 +51,7 @@ class ShareActivity : Activity() {
     }
 
     private fun handleSharedText(text: String) {
+        // BUG FIX: Use regular string (not raw string) so backslash sequences are correct
         val extractedUrl = extractUrl(text) ?: text.trim()
         val finalUrl = if (!extractedUrl.startsWith("http://") && !extractedUrl.startsWith("https://")) {
             "https://\$extractedUrl"
@@ -62,15 +61,19 @@ class ShareActivity : Activity() {
 
         val domain = extractDomain(finalUrl)
 
-        // ALWAYS save synchronously FIRST — regardless of silent mode
-        // This guarantees the link is never lost
-        val rowId = saveLinkToDb(finalUrl, domain)
+        // ALWAYS save synchronously first — link must never be lost
+        val (rowId, alreadyExists) = saveLinkToDb(finalUrl, domain)
 
-        // Show toast feedback
-        val toastMsg = if (rowId >= 0) "🔗 Link kaydedildi: \$domain" else "⚠️ Link zaten kayıtlı: \$domain"
+        val toastMsg = if (alreadyExists) {
+            "🔗 Link zaten kayıtlı: \$domain"
+        } else if (rowId >= 0) {
+            "🔗 Link kaydedildi: \$domain"
+        } else {
+            "❌ Kaydetme hatası, tekrar deneyin"
+        }
         Toast.makeText(applicationContext, toastMsg, Toast.LENGTH_SHORT).show()
 
-        // Start background metadata fetch regardless of silent mode
+        // Background metadata fetch
         val effectiveRowId = if (rowId >= 0) rowId else getExistingRowId(finalUrl)
         if (effectiveRowId >= 0) {
             thread {
@@ -78,12 +81,10 @@ class ShareActivity : Activity() {
             }
         }
 
-        // THEN decide: silent mode → just close, else open app UI
-        val isSilent = isSilentSaveEnabled()
-        if (isSilent) {
+        // Decide UI behavior based on silent mode
+        if (isSilentSaveEnabled()) {
             finish()
         } else {
-            // Open main activity so user can see the newly added link
             val mainIntent = Intent(this, MainActivity::class.java).apply {
                 flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
                 putExtra("newly_saved_url", finalUrl)
@@ -95,55 +96,60 @@ class ShareActivity : Activity() {
 
     private fun getDbFile(): File {
         val expoDir = File(filesDir, "SQLite")
-        if (!expoDir.exists()) {
-            expoDir.mkdirs()
-        }
+        if (!expoDir.exists()) expoDir.mkdirs()
         return File(expoDir, "linkgorize.db")
+    }
+
+    private fun openDb(readOnly: Boolean = false): SQLiteDatabase {
+        val dbFile = getDbFile()
+        val flags = if (readOnly) SQLiteDatabase.OPEN_READONLY else SQLiteDatabase.OPEN_READWRITE or SQLiteDatabase.CREATE_IF_NECESSARY
+        return SQLiteDatabase.openDatabase(dbFile.path, null, flags)
     }
 
     private fun isSilentSaveEnabled(): Boolean {
         return try {
-            val dbFile = getDbFile()
-            if (!dbFile.exists()) return false
-            val db = SQLiteDatabase.openDatabase(dbFile.path, null, SQLiteDatabase.OPEN_READONLY)
+            val db = openDb(readOnly = true)
             val cursor = db.rawQuery("SELECT value FROM settings WHERE key = 'silent_save'", null)
             var silent = false
-            if (cursor.moveToFirst()) {
-                silent = (cursor.getString(0) == "1")
-            }
+            if (cursor.moveToFirst()) silent = (cursor.getString(0) == "1")
             cursor.close()
             db.close()
             silent
-        } catch (e: Exception) {
+        } catch (_: Exception) {
             false
         }
     }
 
     private fun getExistingRowId(urlStr: String): Long {
         return try {
-            val dbFile = getDbFile()
-            if (!dbFile.exists()) return -1L
-            val db = SQLiteDatabase.openDatabase(dbFile.path, null, SQLiteDatabase.OPEN_READONLY)
+            val db = openDb(readOnly = true)
             val cursor = db.rawQuery("SELECT id FROM links WHERE url = ?", arrayOf(urlStr))
             var id = -1L
-            if (cursor.moveToFirst()) {
-                id = cursor.getLong(0)
-            }
+            if (cursor.moveToFirst()) id = cursor.getLong(0)
             cursor.close()
             db.close()
             id
-        } catch (e: Exception) {
+        } catch (_: Exception) {
             -1L
         }
     }
 
-    private fun saveLinkToDb(urlStr: String, domain: String): Long {
-        var rowId = -1L
+    /**
+     * Returns Pair(rowId, alreadyExists).
+     * rowId >= 0  → newly inserted
+     * rowId = -1, alreadyExists = true  → duplicate URL (already in DB)
+     * rowId = -1, alreadyExists = false → real error
+     */
+    private fun saveLinkToDb(urlStr: String, domain: String): Pair<Long, Boolean> {
         try {
             val dbFile = getDbFile()
-            val db = SQLiteDatabase.openOrCreateDatabase(dbFile, null)
-            db.enableWriteAheadLogging()
-            db.execSQL("PRAGMA journal_mode = WAL;")
+            // Open WITHOUT enableWriteAheadLogging() — expo-sqlite already handles WAL.
+            // Calling enableWriteAheadLogging on an already-WAL database throws.
+            val db = SQLiteDatabase.openDatabase(
+                dbFile.path,
+                null,
+                SQLiteDatabase.OPEN_READWRITE or SQLiteDatabase.CREATE_IF_NECESSARY
+            )
 
             db.execSQL("""
                 CREATE TABLE IF NOT EXISTS links (
@@ -158,15 +164,26 @@ class ShareActivity : Activity() {
                     is_read INTEGER NOT NULL DEFAULT 0,
                     is_favorite INTEGER NOT NULL DEFAULT 0,
                     tags TEXT
-                );
+                )
             """.trimIndent())
 
             db.execSQL("""
                 CREATE TABLE IF NOT EXISTS settings (
                     key TEXT PRIMARY KEY,
                     value TEXT NOT NULL
-                );
+                )
             """.trimIndent())
+
+            // Check if URL already exists
+            val existsCursor = db.rawQuery("SELECT id FROM links WHERE url = ?", arrayOf(urlStr))
+            val alreadyExists = existsCursor.moveToFirst()
+            val existingId = if (alreadyExists) existsCursor.getLong(0) else -1L
+            existsCursor.close()
+
+            if (alreadyExists) {
+                db.close()
+                return Pair(-1L, true)
+            }
 
             val defaultFavicon = "https://www.google.com/s2/favicons?domain=\$domain&sz=64"
             val values = ContentValues().apply {
@@ -179,21 +196,20 @@ class ShareActivity : Activity() {
                 put("is_favorite", 0)
             }
 
-            // CONFLICT_IGNORE: if URL already exists, do NOT overwrite, return -1
-            rowId = db.insertWithOnConflict("links", null, values, SQLiteDatabase.CONFLICT_IGNORE)
-
-            db.execSQL("PRAGMA wal_checkpoint(FULL);")
+            val rowId = db.insert("links", null, values)
+            try { db.execSQL("PRAGMA wal_checkpoint(PASSIVE);") } catch (_: Exception) {}
             db.close()
+
+            return Pair(rowId, false)
         } catch (e: Exception) {
             e.printStackTrace()
+            return Pair(-1L, false)
         }
-        return rowId
     }
 
     private fun fetchAndSaveMetadata(urlStr: String, domain: String, id: Long) {
         try {
-            val url = URL(urlStr)
-            val conn = (url.openConnection() as HttpURLConnection).apply {
+            val conn = (URL(urlStr).openConnection() as HttpURLConnection).apply {
                 connectTimeout = 8000
                 readTimeout = 8000
                 instanceFollowRedirects = true
@@ -212,9 +228,11 @@ class ShareActivity : Activity() {
                 ?: extractMeta(html, "twitter:image")
             val favicon = "https://www.google.com/s2/favicons?domain=\$domain&sz=64"
 
-            val dbFile = getDbFile()
-            val db = SQLiteDatabase.openOrCreateDatabase(dbFile, null)
-            db.enableWriteAheadLogging()
+            val db = SQLiteDatabase.openDatabase(
+                getDbFile().path,
+                null,
+                SQLiteDatabase.OPEN_READWRITE
+            )
             val updateValues = ContentValues().apply {
                 if (!title.isNullOrBlank()) put("title", title)
                 if (!description.isNullOrBlank()) put("description", description)
@@ -222,33 +240,40 @@ class ShareActivity : Activity() {
                 put("favicon", favicon)
             }
             db.update("links", updateValues, "id = ?", arrayOf(id.toString()))
-            db.execSQL("PRAGMA wal_checkpoint(FULL);")
+            try { db.execSQL("PRAGMA wal_checkpoint(PASSIVE);") } catch (_: Exception) {}
             db.close()
         } catch (_: Exception) {}
     }
 
     private fun extractMeta(html: String, prop: String): String? {
         val patterns = arrayOf(
-            Pattern.compile("""<meta[^>]+property=["']$prop["'][^>]+content=["']([^"']+)["']""", Pattern.CASE_INSENSITIVE),
-            Pattern.compile("""<meta[^>]+content=["']([^"']+)["'][^>]+property=["']$prop["']""", Pattern.CASE_INSENSITIVE),
-            Pattern.compile("""<meta[^>]+name=["']$prop["'][^>]+content=["']([^"']+)["']""", Pattern.CASE_INSENSITIVE),
-            Pattern.compile("""<meta[^>]+content=["']([^"']+)["'][^>]+name=["']$prop["']""", Pattern.CASE_INSENSITIVE)
+            Pattern.compile("<meta[^>]+property=[\"']\\Q$prop\\E[\"'][^>]+content=[\"']([^\"']+)[\"']", Pattern.CASE_INSENSITIVE),
+            Pattern.compile("<meta[^>]+content=[\"']([^\"']+)[\"'][^>]+property=[\"']\\Q$prop\\E[\"']", Pattern.CASE_INSENSITIVE),
+            Pattern.compile("<meta[^>]+name=[\"']\\Q$prop\\E[\"'][^>]+content=[\"']([^\"']+)[\"']", Pattern.CASE_INSENSITIVE),
+            Pattern.compile("<meta[^>]+content=[\"']([^\"']+)[\"'][^>]+name=[\"']\\Q$prop\\E[\"']", Pattern.CASE_INSENSITIVE)
         )
-        for (pattern in patterns) {
-            val matcher = pattern.matcher(html)
-            if (matcher.find()) return matcher.group(1)?.trim()
+        for (p in patterns) {
+            val m = p.matcher(html)
+            if (m.find()) return m.group(1)?.trim()
         }
         return null
     }
 
     private fun extractTag(html: String, tag: String): String? {
-        val matcher = Pattern.compile("""<$tag[^>]*>([^<]+)</$tag>""", Pattern.CASE_INSENSITIVE).matcher(html)
-        return if (matcher.find()) matcher.group(1)?.trim() else null
+        val m = Pattern.compile("<\\Q$tag\\E[^>]*>([^<]+)</$tag>", Pattern.CASE_INSENSITIVE).matcher(html)
+        return if (m.find()) m.group(1)?.trim() else null
     }
 
+    // Use simple string splitting to avoid regex escape issues
     private fun extractUrl(text: String): String? {
-        val matcher = Pattern.compile("""https?://\\S+""", Pattern.CASE_INSENSITIVE).matcher(text)
-        return if (matcher.find()) matcher.group(0) else null
+        val cleaned = text.trim()
+        // Find first occurrence of http:// or https://
+        val httpIdx = cleaned.indexOf("https://").let { if (it >= 0) it else cleaned.indexOf("http://") }
+        if (httpIdx < 0) return null
+        val fromHttp = cleaned.substring(httpIdx)
+        // Cut off at first whitespace or newline
+        val endIdx = fromHttp.indexOfFirst { it.isWhitespace() }
+        return if (endIdx > 0) fromHttp.substring(0, endIdx) else fromHttp
     }
 
     private fun extractDomain(urlStr: String): String {
@@ -270,30 +295,24 @@ class ShareActivity : Activity() {
 `;
 
 function withShareActivity(config) {
-  // 1. AndroidManifest.xml
   config = withAndroidManifest(config, (config) => {
     const mainApplication = AndroidConfig.Manifest.getMainApplicationOrThrow(config.modResults);
 
     if (Array.isArray(mainApplication.activity)) {
-      // Remove SEND intent filter from MainActivity (we handle it in ShareActivity)
       const mainActivity = mainApplication.activity.find(
         (a) => a.$['android:name'] === '.MainActivity'
       );
       if (mainActivity && Array.isArray(mainActivity['intent-filter'])) {
         mainActivity['intent-filter'] = mainActivity['intent-filter'].filter((filter) => {
           const actions = filter.action || [];
-          return !actions.some(
-            (act) => act.$['android:name'] === 'android.intent.action.SEND'
-          );
+          return !actions.some((act) => act.$['android:name'] === 'android.intent.action.SEND');
         });
       }
 
-      // Remove any existing ShareActivity declaration
       mainApplication.activity = mainApplication.activity.filter(
         (a) => a.$['android:name'] !== '.ShareActivity'
       );
 
-      // Register ShareActivity — isolated task, no history, no preview
       mainApplication.activity.push({
         $: {
           'android:name': '.ShareActivity',
@@ -317,7 +336,6 @@ function withShareActivity(config) {
     return config;
   });
 
-  // 2. Add Theme.Transparent to styles.xml
   config = withAndroidStyles(config, (config) => {
     const styles = config.modResults.resources.style || [];
     const idx = styles.findIndex((s) => s.$.name === 'Theme.Transparent');
@@ -340,7 +358,6 @@ function withShareActivity(config) {
     return config;
   });
 
-  // 3. Write ShareActivity.kt
   config = withDangerousMod(config, [
     'android',
     async (config) => {
