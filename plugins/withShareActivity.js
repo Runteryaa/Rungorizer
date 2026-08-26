@@ -118,6 +118,8 @@ class ShareActivity : Activity() {
             val dbFile = getDbFile()
             dbFile.parentFile?.mkdirs()
             val db = SQLiteDatabase.openOrCreateDatabase(dbFile, null)
+            db.enableWriteAheadLogging()
+            db.execSQL("PRAGMA journal_mode = WAL;")
             
             // Ensure tables exist
             db.execSQL("""
@@ -154,6 +156,10 @@ class ShareActivity : Activity() {
             }
 
             rowId = db.insertWithOnConflict("links", null, values, SQLiteDatabase.CONFLICT_REPLACE)
+            // Checkpoint WAL so that readers in other connections/processes immediately see new rows
+            try {
+                db.execSQL("PRAGMA wal_checkpoint(FULL);")
+            } catch (e: Exception) {}
             db.close()
         } catch (e: Exception) {
             e.printStackTrace()
@@ -191,6 +197,7 @@ class ShareActivity : Activity() {
 
             val dbFile = getDbFile()
             val db = SQLiteDatabase.openOrCreateDatabase(dbFile, null)
+            db.enableWriteAheadLogging()
             val updateValues = ContentValues().apply {
                 if (!title.isNullOrBlank()) put("title", title)
                 if (!description.isNullOrBlank()) put("description", description)
@@ -198,6 +205,9 @@ class ShareActivity : Activity() {
                 put("favicon", favicon)
             }
             db.update("links", updateValues, "id = ?", arrayOf(id.toString()))
+            try {
+                db.execSQL("PRAGMA wal_checkpoint(FULL);")
+            } catch (e: Exception) {}
             db.close()
         } catch (e: Exception) {
             // Ignore background fetch errors
@@ -282,7 +292,6 @@ function withShareActivity(config) {
       );
 
       // Add transparent ShareActivity with isolated taskAffinity and singleInstance launchMode
-      // This ensures that launching ShareActivity will NEVER bring an existing background MainActivity to the foreground!
       mainApplication.activity.push({
         $: {
           'android:name': '.ShareActivity',

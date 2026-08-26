@@ -30,7 +30,7 @@ export default function DomainScreen() {
   const colors = getColors(scheme);
   const router = useRouter();
   const navigation = useNavigation();
-  const { db } = useDb();
+  const { db, refreshKey } = useDb();
 
   const [links, setLinks] = useState<Link[]>([]);
   const [refreshing, setRefreshing] = useState(false);
@@ -38,19 +38,27 @@ export default function DomainScreen() {
 
   const loadLinks = useCallback(async () => {
     if (!db) return;
-    const data = await getLinksByDomain(db, domain);
-    setLinks(data);
+    try {
+      const data = await getLinksByDomain(db, domain);
+      setLinks(data);
+    } catch (e) {
+      console.warn('loadLinks error:', e);
+    }
   }, [db, domain]);
 
   useEffect(() => {
     navigation.setOptions({ title: domain });
     loadLinks();
-  }, [domain, loadLinks, navigation]);
+  }, [domain, loadLinks, navigation, refreshKey]);
 
-  // Link detayından geri dönünce (okundu/favori değişebilir) listeyi güncelle
+  // Ekrana odaklanıldığında ve 2 saniyede bir otomatik senkronize et
   useFocusEffect(
     useCallback(() => {
       loadLinks();
+      const interval = setInterval(() => {
+        loadLinks();
+      }, 2000);
+      return () => clearInterval(interval);
     }, [loadLinks])
   );
 

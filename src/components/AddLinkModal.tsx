@@ -27,7 +27,7 @@ interface AddLinkModalProps {
 export function AddLinkModal({ visible, initialUrl = '', onClose, onAdded }: AddLinkModalProps) {
   const scheme = useColorScheme();
   const colors = getColors(scheme);
-  const { db } = useDb();
+  const { db, refresh } = useDb();
 
   const [url, setUrl] = useState(initialUrl);
   const [loading, setLoading] = useState(false);
@@ -70,12 +70,14 @@ export function AddLinkModal({ visible, initialUrl = '', onClose, onAdded }: Add
       // Modal'ı kapat ve listeyi hemen güncelle
       onClose();
       onAdded();
+      refresh();
 
       // Metadata'yı arka planda çek, bitince listeyi tekrar güncelle
       fetchLinkMetadata(finalUrl).then(async (meta) => {
         const { updateLinkMetadata } = await import('../db/database');
         await updateLinkMetadata(db, id, meta);
         onAdded();
+        refresh();
       });
     } catch (e: any) {
       if (e?.message?.includes('UNIQUE')) {

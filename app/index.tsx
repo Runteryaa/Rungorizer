@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
 import {
   View,
   Text,
@@ -31,23 +31,38 @@ export default function HomeScreen() {
   const [search, setSearch] = useState('');
   const [refreshing, setRefreshing] = useState(false);
   const [modalVisible, setModalVisible] = useState(false);
+  const searchRef = useRef(search);
+  searchRef.current = search;
 
   const loadDomains = useCallback(async () => {
     if (!db) return;
-    const data = await getDomains(db);
-    setDomains(data);
-    setFiltered(data);
+    try {
+      const data = await getDomains(db);
+      setDomains(data);
+      const currentSearch = searchRef.current.trim().toLowerCase();
+      if (currentSearch === '') {
+        setFiltered(data);
+      } else {
+        setFiltered(data.filter((d) => d.domain.toLowerCase().includes(currentSearch)));
+      }
+    } catch (e) {
+      console.warn('loadDomains error:', e);
+    }
   }, [db]);
 
-  // refreshKey değişince yükle (share intent / AddLinkModal tetikler)
+  // refreshKey değişince yükle
   useEffect(() => {
     if (isReady) loadDomains();
   }, [isReady, loadDomains, refreshKey]);
 
-  // Ekrana her odaklanıldığında yükle (başka ekrandan geri dönüşlerde)
+  // Ekrana odaklanıldığında hemen yükle ve odaklıyken 2 saniyede bir otomatik senkronize et
   useFocusEffect(
     useCallback(() => {
       if (isReady) loadDomains();
+      const interval = setInterval(() => {
+        if (isReady) loadDomains();
+      }, 2000);
+      return () => clearInterval(interval);
     }, [isReady, loadDomains])
   );
 
@@ -61,14 +76,16 @@ export default function HomeScreen() {
     return () => sub.remove();
   }, [isReady, loadDomains]);
 
-  useEffect(() => {
-    if (search.trim() === '') {
+  // Arama metni değiştikçe anlık filtrele
+  const handleSearchChange = (text: string) => {
+    setSearch(text);
+    const q = text.trim().toLowerCase();
+    if (q === '') {
       setFiltered(domains);
     } else {
-      const q = search.toLowerCase();
       setFiltered(domains.filter((d) => d.domain.toLowerCase().includes(q)));
     }
-  }, [search, domains]);
+  };
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
@@ -119,7 +136,7 @@ export default function HomeScreen() {
         <TextInput
           style={[styles.searchInput, { color: colors.text }]}
           value={search}
-          onChangeText={setSearch}
+          onChangeText={handleSearchChange}
           placeholder="Domain ara..."
           placeholderTextColor={colors.textTertiary}
           clearButtonMode="while-editing"
