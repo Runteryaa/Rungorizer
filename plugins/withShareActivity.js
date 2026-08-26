@@ -66,15 +66,20 @@ class ShareActivity : Activity() {
         val isSilent = isSilentSaveEnabled()
 
         if (isSilent) {
-            // Save in background directly to SQLite
-            thread {
-                saveLinkToDb(finalUrl, domain)
-            }
+            // 1. SYNCHRONOUS SQLite insert so the row is guaranteed to commit before finish()
+            val rowId = saveLinkToDb(finalUrl, domain)
 
-            // Show native Android Toast immediately
+            // 2. Show native Toast immediately
             Toast.makeText(applicationContext, "🔗 Link kaydedildi: $domain", Toast.LENGTH_SHORT).show()
 
-            // Finish immediately without rendering any UI
+            // 3. Start async background metadata fetch
+            if (rowId != -1L) {
+                thread {
+                    fetchAndSaveMetadata(finalUrl, domain, rowId)
+                }
+            }
+
+            // 4. Finish activity immediately
             finish()
         } else {
             // Forward to MainActivity to open the app UI
@@ -83,12 +88,11 @@ class ShareActivity : Activity() {
     }
 
     private fun getDbFile(): File {
-        val expoDb = File(filesDir, "SQLite/linkgorize.db")
-        if (expoDb.exists()) return expoDb
-        val defaultDb = getDatabasePath("linkgorize.db")
-        if (defaultDb.exists()) return defaultDb
-        expoDb.parentFile?.mkdirs()
-        return expoDb
+        val expoDir = File(filesDir, "SQLite")
+        if (!expoDir.exists()) {
+            expoDir.mkdirs()
+        }
+        return File(expoDir, "linkgorize.db")
     }
 
     private fun isSilentSaveEnabled(): Boolean {
@@ -112,11 +116,10 @@ class ShareActivity : Activity() {
         }
     }
 
-    private fun saveLinkToDb(urlStr: String, domain: String) {
+    private fun saveLinkToDb(urlStr: String, domain: String): Long {
         var rowId = -1L
         try {
             val dbFile = getDbFile()
-            dbFile.parentFile?.mkdirs()
             val db = SQLiteDatabase.openOrCreateDatabase(dbFile, null)
             db.enableWriteAheadLogging()
             db.execSQL("PRAGMA journal_mode = WAL;")
@@ -149,6 +152,7 @@ class ShareActivity : Activity() {
             val values = ContentValues().apply {
                 put("url", urlStr)
                 put("domain", domain)
+                put("title", domain)
                 put("favicon", defaultFavicon)
                 put("created_at", System.currentTimeMillis())
                 put("is_read", 0)
@@ -156,7 +160,6 @@ class ShareActivity : Activity() {
             }
 
             rowId = db.insertWithOnConflict("links", null, values, SQLiteDatabase.CONFLICT_REPLACE)
-            // Checkpoint WAL so that readers in other connections/processes immediately see new rows
             try {
                 db.execSQL("PRAGMA wal_checkpoint(FULL);")
             } catch (e: Exception) {}
@@ -164,11 +167,7 @@ class ShareActivity : Activity() {
         } catch (e: Exception) {
             e.printStackTrace()
         }
-
-        // Background metadata fetch
-        if (rowId != -1L) {
-            fetchAndSaveMetadata(urlStr, domain, rowId)
-        }
+        return rowId
     }
 
     private fun fetchAndSaveMetadata(urlStr: String, domain: String, id: Long) {
@@ -292,6 +291,7 @@ function withShareActivity(config) {
       );
 
       // Add transparent ShareActivity with isolated taskAffinity and singleInstance launchMode
+      // This ensures that launching ShareActivity will NEVER bring an existing background MainActivity to the foreground!
       mainApplication.activity.push({
         $: {
           'android:name': '.ShareActivity',
