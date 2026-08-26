@@ -2,8 +2,18 @@ name: Build Android APK & Release
 
 on:
   push:
-    branches: [ main, master ]
+    branches:
+      - main
+      - master
+    paths-ignore:
+      - 'README.md'
+      - 'LICENSE'
+      - '*.md'
   workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: write
@@ -29,15 +39,8 @@ jobs:
           distribution: 'zulu'
           java-version: '17'
 
-      - name: 💾 Cache Gradle Packages
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.gradle/caches
-            ~/.gradle/wrapper
-          key: gradle-${{ runner.os }}-${{ hashFiles('package-lock.json', 'app.json') }}
-          restore-keys: |
-            gradle-${{ runner.os }}-
+      - name: 🐘 Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
 
       - name: 📦 Install Dependencies
         run: npm install --legacy-peer-deps
@@ -47,7 +50,7 @@ jobs:
           npx expo prebuild --platform android --clean --no-install
           cd android
           chmod +x gradlew
-          ./gradlew assembleRelease --no-daemon --build-cache
+          ./gradlew assembleRelease --no-daemon
           cd ..
           mkdir -p build-output
           cp android/app/build/outputs/apk/release/app-release.apk build-output/Rungorizer-v1.0.${{ github.run_number }}.apk
@@ -58,6 +61,7 @@ jobs:
         with:
           name: Rungorizer-v1.0.${{ github.run_number }}
           path: build-output/Rungorizer.apk
+          retention-days: 14
 
       - name: 🏷 Create Release & Upload APK
         uses: softprops/action-gh-release@v2
@@ -69,9 +73,10 @@ jobs:
             
             ### 📱 Özellikler:
             - 📂 **Domain Klasörleri:** Kaydedilen linkleri domainlerine göre otomatik gruplandırma
-            - 🔗 **Share Intent:** Tarayıcı ve diğer uygulamalardan doğrudan link paylaşımı
+            - ⚡ **Görünmez Arka Plan Kaydı:** Sessiz modda uygulama hiç açılmadan doğrudan SQLite'a kaydeder
+            - 🔄 **Canlı Senkronizasyon:** Kaydedilen linkler anında UI'da güncellenir
             - 🕷️ **Otomatik Metadata:** Başlık, açıklama, favicon ve og:image çekme
-            - 💾 **SQLite:** Hızlı ve güvenli yerel veri saklama
+            - 💾 **SQLite Depolama:** Yerel ve hızlı veri saklama
             - ⭐ **Favoriler & Okundu Durumu:** Kolay yönetim ve takip
             - 🔍 **Arama:** Başlık, açıklama ve domain içinde gerçek zamanlı filtreleme
             - 🌙 **Tema Desteği:** Açık ve Koyu mod uyumu
