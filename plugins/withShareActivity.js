@@ -7,6 +7,9 @@ const {
 const fs = require('fs');
 const path = require('path');
 
+// NOTE: This string is written directly as a .kt file.
+// Dollar signs that are Kotlin string interpolations are escaped with \$ in JS template literals.
+// NO regex patterns are used anywhere to avoid escape hell across JS -> Kotlin boundaries.
 const KOTLIN_SHARE_ACTIVITY = `package com.runterya.rungorizer
 
 import android.app.Activity
@@ -19,7 +22,6 @@ import android.widget.Toast
 import java.io.File
 import java.net.HttpURLConnection
 import java.net.URL
-import java.util.regex.Pattern
 import kotlin.concurrent.thread
 
 class ShareActivity : Activity() {
@@ -51,10 +53,9 @@ class ShareActivity : Activity() {
     }
 
     private fun handleSharedText(text: String) {
-        // BUG FIX: Use regular string (not raw string) so backslash sequences are correct
         val extractedUrl = extractUrl(text) ?: text.trim()
         val finalUrl = if (!extractedUrl.startsWith("http://") && !extractedUrl.startsWith("https://")) {
-            "https://\$extractedUrl"
+            "https://\${extractedUrl}"
         } else {
             extractedUrl
         }
@@ -64,21 +65,17 @@ class ShareActivity : Activity() {
         // ALWAYS save synchronously first — link must never be lost
         val (rowId, alreadyExists) = saveLinkToDb(finalUrl, domain)
 
-        val toastMsg = if (alreadyExists) {
-            "🔗 Link zaten kayıtlı: \$domain"
-        } else if (rowId >= 0) {
-            "🔗 Link kaydedildi: \$domain"
-        } else {
-            "❌ Kaydetme hatası, tekrar deneyin"
+        val toastMsg = when {
+            alreadyExists -> "Link zaten kayitli: \${domain}"
+            rowId >= 0   -> "Link kaydedildi: \${domain}"
+            else         -> "Kaydetme hatasi, tekrar deneyin"
         }
         Toast.makeText(applicationContext, toastMsg, Toast.LENGTH_SHORT).show()
 
         // Background metadata fetch
         val effectiveRowId = if (rowId >= 0) rowId else getExistingRowId(finalUrl)
         if (effectiveRowId >= 0) {
-            thread {
-                fetchAndSaveMetadata(finalUrl, domain, effectiveRowId)
-            }
+            thread { fetchAndSaveMetadata(finalUrl, domain, effectiveRowId) }
         }
 
         // Decide UI behavior based on silent mode
@@ -102,7 +99,11 @@ class ShareActivity : Activity() {
 
     private fun openDb(readOnly: Boolean = false): SQLiteDatabase {
         val dbFile = getDbFile()
-        val flags = if (readOnly) SQLiteDatabase.OPEN_READONLY else SQLiteDatabase.OPEN_READWRITE or SQLiteDatabase.CREATE_IF_NECESSARY
+        val flags = if (readOnly) {
+            SQLiteDatabase.OPEN_READONLY
+        } else {
+            SQLiteDatabase.OPEN_READWRITE or SQLiteDatabase.CREATE_IF_NECESSARY
+        }
         return SQLiteDatabase.openDatabase(dbFile.path, null, flags)
     }
 
@@ -115,9 +116,7 @@ class ShareActivity : Activity() {
             cursor.close()
             db.close()
             silent
-        } catch (_: Exception) {
-            false
-        }
+        } catch (_: Exception) { false }
     }
 
     private fun getExistingRowId(urlStr: String): Long {
@@ -129,55 +128,44 @@ class ShareActivity : Activity() {
             cursor.close()
             db.close()
             id
-        } catch (_: Exception) {
-            -1L
-        }
+        } catch (_: Exception) { -1L }
     }
 
     /**
      * Returns Pair(rowId, alreadyExists).
-     * rowId >= 0  → newly inserted
-     * rowId = -1, alreadyExists = true  → duplicate URL (already in DB)
-     * rowId = -1, alreadyExists = false → real error
+     * rowId >= 0 + alreadyExists=false -> newly inserted
+     * rowId = -1 + alreadyExists=true  -> already in DB
+     * rowId = -1 + alreadyExists=false -> real error
      */
     private fun saveLinkToDb(urlStr: String, domain: String): Pair<Long, Boolean> {
-        try {
-            val dbFile = getDbFile()
-            // Open WITHOUT enableWriteAheadLogging() — expo-sqlite already handles WAL.
-            // Calling enableWriteAheadLogging on an already-WAL database throws.
-            val db = SQLiteDatabase.openDatabase(
-                dbFile.path,
-                null,
-                SQLiteDatabase.OPEN_READWRITE or SQLiteDatabase.CREATE_IF_NECESSARY
+        return try {
+            // Do NOT call enableWriteAheadLogging() — expo-sqlite already manages WAL mode.
+            // Calling it again on a WAL database throws an exception.
+            val db = openDb(readOnly = false)
+
+            db.execSQL(
+                "CREATE TABLE IF NOT EXISTS links (" +
+                "id INTEGER PRIMARY KEY AUTOINCREMENT, " +
+                "url TEXT NOT NULL UNIQUE, " +
+                "domain TEXT NOT NULL, " +
+                "title TEXT, " +
+                "description TEXT, " +
+                "favicon TEXT, " +
+                "og_image TEXT, " +
+                "created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now') * 1000), " +
+                "is_read INTEGER NOT NULL DEFAULT 0, " +
+                "is_favorite INTEGER NOT NULL DEFAULT 0, " +
+                "tags TEXT)"
+            )
+            db.execSQL(
+                "CREATE TABLE IF NOT EXISTS settings (" +
+                "key TEXT PRIMARY KEY, " +
+                "value TEXT NOT NULL)"
             )
 
-            db.execSQL("""
-                CREATE TABLE IF NOT EXISTS links (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    url TEXT NOT NULL UNIQUE,
-                    domain TEXT NOT NULL,
-                    title TEXT,
-                    description TEXT,
-                    favicon TEXT,
-                    og_image TEXT,
-                    created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now') * 1000),
-                    is_read INTEGER NOT NULL DEFAULT 0,
-                    is_favorite INTEGER NOT NULL DEFAULT 0,
-                    tags TEXT
-                )
-            """.trimIndent())
-
-            db.execSQL("""
-                CREATE TABLE IF NOT EXISTS settings (
-                    key TEXT PRIMARY KEY,
-                    value TEXT NOT NULL
-                )
-            """.trimIndent())
-
-            // Check if URL already exists
+            // Check if URL already exists before insert
             val existsCursor = db.rawQuery("SELECT id FROM links WHERE url = ?", arrayOf(urlStr))
             val alreadyExists = existsCursor.moveToFirst()
-            val existingId = if (alreadyExists) existsCursor.getLong(0) else -1L
             existsCursor.close()
 
             if (alreadyExists) {
@@ -185,12 +173,12 @@ class ShareActivity : Activity() {
                 return Pair(-1L, true)
             }
 
-            val defaultFavicon = "https://www.google.com/s2/favicons?domain=\$domain&sz=64"
+            val favicon = "https://www.google.com/s2/favicons?domain=\${domain}&sz=64"
             val values = ContentValues().apply {
                 put("url", urlStr)
                 put("domain", domain)
                 put("title", domain)
-                put("favicon", defaultFavicon)
+                put("favicon", favicon)
                 put("created_at", System.currentTimeMillis())
                 put("is_read", 0)
                 put("is_favorite", 0)
@@ -199,11 +187,10 @@ class ShareActivity : Activity() {
             val rowId = db.insert("links", null, values)
             try { db.execSQL("PRAGMA wal_checkpoint(PASSIVE);") } catch (_: Exception) {}
             db.close()
-
-            return Pair(rowId, false)
+            Pair(rowId, false)
         } catch (e: Exception) {
             e.printStackTrace()
-            return Pair(-1L, false)
+            Pair(-1L, false)
         }
     }
 
@@ -226,13 +213,9 @@ class ShareActivity : Activity() {
                 ?: extractMeta(html, "description")
             val ogImage = extractMeta(html, "og:image")
                 ?: extractMeta(html, "twitter:image")
-            val favicon = "https://www.google.com/s2/favicons?domain=\$domain&sz=64"
+            val favicon = "https://www.google.com/s2/favicons?domain=\${domain}&sz=64"
 
-            val db = SQLiteDatabase.openDatabase(
-                getDbFile().path,
-                null,
-                SQLiteDatabase.OPEN_READWRITE
-            )
+            val db = openDb(readOnly = false)
             val updateValues = ContentValues().apply {
                 if (!title.isNullOrBlank()) put("title", title)
                 if (!description.isNullOrBlank()) put("description", description)
@@ -245,33 +228,67 @@ class ShareActivity : Activity() {
         } catch (_: Exception) {}
     }
 
+    // --- Simple string-based HTML parsers (no regex, no escape issues) ---
+
     private fun extractMeta(html: String, prop: String): String? {
-        val patterns = arrayOf(
-            Pattern.compile("<meta[^>]+property=[\"']\\Q$prop\\E[\"'][^>]+content=[\"']([^\"']+)[\"']", Pattern.CASE_INSENSITIVE),
-            Pattern.compile("<meta[^>]+content=[\"']([^\"']+)[\"'][^>]+property=[\"']\\Q$prop\\E[\"']", Pattern.CASE_INSENSITIVE),
-            Pattern.compile("<meta[^>]+name=[\"']\\Q$prop\\E[\"'][^>]+content=[\"']([^\"']+)[\"']", Pattern.CASE_INSENSITIVE),
-            Pattern.compile("<meta[^>]+content=[\"']([^\"']+)[\"'][^>]+name=[\"']\\Q$prop\\E[\"']", Pattern.CASE_INSENSITIVE)
-        )
-        for (p in patterns) {
-            val m = p.matcher(html)
-            if (m.find()) return m.group(1)?.trim()
+        val propLower = prop.lowercase()
+        val htmlLower = html.lowercase()
+        var searchFrom = 0
+        while (searchFrom < htmlLower.length) {
+            val metaStart = htmlLower.indexOf("<meta", searchFrom)
+            if (metaStart < 0) break
+            val metaEnd = htmlLower.indexOf(">", metaStart)
+            if (metaEnd < 0) break
+            val tag = html.substring(metaStart, metaEnd + 1)
+            val tagLower = tag.lowercase()
+            val hasProp = tagLower.contains("property=\"\${propLower}\"") ||
+                          tagLower.contains("property='\${propLower}'") ||
+                          tagLower.contains("name=\"\${propLower}\"") ||
+                          tagLower.contains("name='\${propLower}'")
+            if (hasProp) {
+                val content = extractAttr(tag, "content")
+                if (!content.isNullOrBlank()) return content
+            }
+            searchFrom = metaEnd + 1
+        }
+        return null
+    }
+
+    private fun extractAttr(tag: String, attr: String): String? {
+        val tagLower = tag.lowercase()
+        val attrLower = attr.lowercase()
+        for (quote in listOf('"', '\'')) {
+            val pat = "\${attrLower}=\${quote}"
+            val idx = tagLower.indexOf(pat)
+            if (idx >= 0) {
+                val start = idx + pat.length
+                val end = tag.indexOf(quote, start)
+                if (end > start) return tag.substring(start, end).trim()
+            }
         }
         return null
     }
 
     private fun extractTag(html: String, tag: String): String? {
-        val m = Pattern.compile("<\\Q$tag\\E[^>]*>([^<]+)</$tag>", Pattern.CASE_INSENSITIVE).matcher(html)
-        return if (m.find()) m.group(1)?.trim() else null
+        val t = tag.lowercase()
+        val h = html.lowercase()
+        val openTag = "<" + t
+        val closeTag = "</" + t + ">"
+        val tagStart = h.indexOf(openTag)
+        if (tagStart < 0) return null
+        val openEnd = h.indexOf(">", tagStart)
+        if (openEnd < 0) return null
+        val closeIdx = h.indexOf(closeTag, openEnd)
+        if (closeIdx <= openEnd) return null
+        return html.substring(openEnd + 1, closeIdx).trim().takeIf { it.isNotBlank() }
     }
 
-    // Use simple string splitting to avoid regex escape issues
+    // Simple URL extraction using indexOf — no regex escape issues
     private fun extractUrl(text: String): String? {
         val cleaned = text.trim()
-        // Find first occurrence of http:// or https://
         val httpIdx = cleaned.indexOf("https://").let { if (it >= 0) it else cleaned.indexOf("http://") }
         if (httpIdx < 0) return null
         val fromHttp = cleaned.substring(httpIdx)
-        // Cut off at first whitespace or newline
         val endIdx = fromHttp.indexOfFirst { it.isWhitespace() }
         return if (endIdx > 0) fromHttp.substring(0, endIdx) else fromHttp
     }
