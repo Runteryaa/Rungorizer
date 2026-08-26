@@ -2,13 +2,7 @@ name: Build Android APK & Release
 
 on:
   push:
-    branches:
-      - main
-      - master
-    paths-ignore:
-      - 'README.md'
-      - 'LICENSE'
-      - '*.md'
+    branches: [ main, master ]
   workflow_dispatch:
 
 concurrency:
