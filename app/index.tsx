@@ -10,6 +10,7 @@ import {
   RefreshControl,
   SafeAreaView,
   StatusBar,
+  AppState,
 } from 'react-native';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { getColors } from '../src/constants/colors';
@@ -49,6 +50,16 @@ export default function HomeScreen() {
       if (isReady) loadDomains();
     }, [isReady, loadDomains])
   );
+
+  // Uygulama arkaplandan öne geldiğinde listeyi yenile
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (state) => {
+      if (state === 'active' && isReady) {
+        loadDomains();
+      }
+    });
+    return () => sub.remove();
+  }, [isReady, loadDomains]);
 
   useEffect(() => {
     if (search.trim() === '') {

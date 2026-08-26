@@ -25,6 +25,7 @@ import kotlin.concurrent.thread
 class ShareActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        overridePendingTransition(0, 0)
         super.onCreate(savedInstanceState)
 
         val intent = intent
@@ -44,6 +45,11 @@ class ShareActivity : Activity() {
 
         // Fallback to normal activity if nothing was processed
         forwardToMainActivity()
+    }
+
+    override fun finish() {
+        super.finish()
+        overridePendingTransition(0, 0)
     }
 
     private fun handleSharedText(text: String) {
@@ -275,11 +281,14 @@ function withShareActivity(config) {
         (a) => a.$['android:name'] !== '.ShareActivity'
       );
 
-      // Add transparent ShareActivity with SEND intent filter
+      // Add transparent ShareActivity with isolated taskAffinity and singleInstance launchMode
+      // This ensures that launching ShareActivity will NEVER bring an existing background MainActivity to the foreground!
       mainApplication.activity.push({
         $: {
           'android:name': '.ShareActivity',
           'android:theme': '@style/Theme.Transparent',
+          'android:taskAffinity': '',
+          'android:launchMode': 'singleInstance',
           'android:noHistory': 'true',
           'android:excludeFromRecents': 'true',
           'android:exported': 'true',
@@ -297,7 +306,7 @@ function withShareActivity(config) {
     return config;
   });
 
-  // 2. Add Theme.Transparent to styles.xml
+  // 2. Add Theme.Transparent with disabled animations to styles.xml
   config = withAndroidStyles(config, (config) => {
     const styles = config.modResults.resources.style || [];
     
@@ -314,6 +323,8 @@ function withShareActivity(config) {
         { $: { name: 'android:windowNoTitle' }, _: 'true' },
         { $: { name: 'android:windowIsFloating' }, _: 'true' },
         { $: { name: 'android:backgroundDimEnabled' }, _: 'false' },
+        { $: { name: 'android:windowAnimationStyle' }, _: '@null' },
+        { $: { name: 'android:windowDisablePreview' }, _: 'true' },
       ],
     };
 
