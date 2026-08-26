@@ -6,7 +6,6 @@ import {
   Text,
   StyleSheet,
   Animated,
-  BackHandler,
 } from 'react-native';
 import {
   ShareIntentProvider as ExpoShareIntentProvider,
@@ -66,22 +65,11 @@ function ShareIntentHandler() {
         resetShareIntent();
 
         if (silentSave) {
-          // Sessiz kayıt modu aktif:
-          // 1. Android sistem toast bildirimi göster
           if (Platform.OS === 'android') {
             ToastAndroid.show(`🔗 Link kaydedildi: ${domain}`, ToastAndroid.SHORT);
           }
-          // 2. Uygulama içi toast göster
           showInAppToast(`🔗 Link kaydedildi: ${domain}`);
-
-          // 3. Kullanıcı tarayıcıda kalabilsin diye arka plana at/kapat
-          setTimeout(() => {
-            if (Platform.OS === 'android') {
-              BackHandler.exitApp();
-            }
-          }, 1200);
         } else {
-          // Normal mod: Link detay sayfasına yönlendir
           router.push(`/link/${id}`);
         }
       } catch (e) {

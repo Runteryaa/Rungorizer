@@ -16,6 +16,7 @@ import android.database.sqlite.SQLiteDatabase
 import android.net.Uri
 import android.os.Bundle
 import android.widget.Toast
+import java.io.File
 import java.net.HttpURLConnection
 import java.net.URL
 import java.util.regex.Pattern
@@ -75,9 +76,18 @@ class ShareActivity : Activity() {
         }
     }
 
+    private fun getDbFile(): File {
+        val expoDb = File(filesDir, "SQLite/linkgorize.db")
+        if (expoDb.exists()) return expoDb
+        val defaultDb = getDatabasePath("linkgorize.db")
+        if (defaultDb.exists()) return defaultDb
+        expoDb.parentFile?.mkdirs()
+        return expoDb
+    }
+
     private fun isSilentSaveEnabled(): Boolean {
         return try {
-            val dbFile = getDatabasePath("linkgorize.db")
+            val dbFile = getDbFile()
             if (!dbFile.exists()) {
                 return false
             }
@@ -99,7 +109,7 @@ class ShareActivity : Activity() {
     private fun saveLinkToDb(urlStr: String, domain: String) {
         var rowId = -1L
         try {
-            val dbFile = getDatabasePath("linkgorize.db")
+            val dbFile = getDbFile()
             dbFile.parentFile?.mkdirs()
             val db = SQLiteDatabase.openOrCreateDatabase(dbFile, null)
             
@@ -117,6 +127,13 @@ class ShareActivity : Activity() {
                     is_read INTEGER NOT NULL DEFAULT 0,
                     is_favorite INTEGER NOT NULL DEFAULT 0,
                     tags TEXT
+                );
+            """.trimIndent())
+
+            db.execSQL("""
+                CREATE TABLE IF NOT EXISTS settings (
+                    key TEXT PRIMARY KEY,
+                    value TEXT NOT NULL
                 );
             """.trimIndent())
 
@@ -146,8 +163,8 @@ class ShareActivity : Activity() {
         try {
             val url = URL(urlStr)
             val conn = (url.openConnection() as HttpURLConnection).apply {
-                connectTimeout = 5000
-                readTimeout = 5000
+                connectTimeout = 8000
+                readTimeout = 8000
                 setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android 10) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Mobile Safari/537.36")
             }
             val html = conn.inputStream.bufferedReader().use { it.readText() }
@@ -166,7 +183,7 @@ class ShareActivity : Activity() {
 
             val favicon = "https://www.google.com/s2/favicons?domain=$domain&sz=64"
 
-            val dbFile = getDatabasePath("linkgorize.db")
+            val dbFile = getDbFile()
             val db = SQLiteDatabase.openOrCreateDatabase(dbFile, null)
             val updateValues = ContentValues().apply {
                 if (!title.isNullOrBlank()) put("title", title)
@@ -205,12 +222,8 @@ class ShareActivity : Activity() {
 
     private fun extractUrl(text: String): String? {
         val pattern = Pattern.compile("""https?://[^\\s]+""", Pattern.CASE_INSENSITIVE)
-        return if (pattern.matcher(text).find()) {
-            val matcher = pattern.matcher(text)
-            if (matcher.find()) matcher.group(0) else null
-        } else {
-            null
-        }
+        val matcher = pattern.matcher(text)
+        return if (matcher.find()) matcher.group(0) else null
     }
 
     private fun extractDomain(urlStr: String): String {
@@ -288,7 +301,6 @@ function withShareActivity(config) {
   config = withAndroidStyles(config, (config) => {
     const styles = config.modResults.resources.style || [];
     
-    // Check if Theme.Transparent exists
     const existingIndex = styles.findIndex((s) => s.$.name === 'Theme.Transparent');
     const transparentStyle = {
       $: {
