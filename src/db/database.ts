@@ -33,6 +33,11 @@ async function initializeDatabase(db: SQLite.SQLiteDatabase): Promise<void> {
     CREATE INDEX IF NOT EXISTS idx_links_domain ON links(domain);
     CREATE INDEX IF NOT EXISTS idx_links_created ON links(created_at DESC);
     CREATE INDEX IF NOT EXISTS idx_links_favorite ON links(is_favorite);
+
+    CREATE TABLE IF NOT EXISTS settings (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL
+    );
   `);
 }
 
@@ -150,6 +155,10 @@ export async function deleteAllByDomain(
   await db.runAsync('DELETE FROM links WHERE domain = ?', domain);
 }
 
+export async function clearAllData(db: SQLite.SQLiteDatabase): Promise<void> {
+  await db.runAsync('DELETE FROM links');
+}
+
 // ─── DOMAIN QUERIES ──────────────────────────────────────────────────────────
 
 export async function getDomains(db: SQLite.SQLiteDatabase): Promise<Domain[]> {
@@ -169,5 +178,31 @@ export async function getDomains(db: SQLite.SQLiteDatabase): Promise<Domain[]> {
 export async function getFavoriteLinks(db: SQLite.SQLiteDatabase): Promise<Link[]> {
   return await db.getAllAsync<Link>(
     'SELECT * FROM links WHERE is_favorite = 1 ORDER BY created_at DESC'
+  );
+}
+
+// ─── SETTINGS QUERIES ────────────────────────────────────────────────────────
+
+export async function getSetting(
+  db: SQLite.SQLiteDatabase,
+  key: string,
+  defaultValue: string = ''
+): Promise<string> {
+  const row = await db.getFirstAsync<{ value: string }>(
+    'SELECT value FROM settings WHERE key = ?',
+    key
+  );
+  return row ? row.value : defaultValue;
+}
+
+export async function setSetting(
+  db: SQLite.SQLiteDatabase,
+  key: string,
+  value: string
+): Promise<void> {
+  await db.runAsync(
+    'INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)',
+    key,
+    value
   );
 }

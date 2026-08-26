@@ -25,6 +25,7 @@ export default function RootLayout() {
           <Stack.Screen name="link/[id]" options={{ title: 'Link Detayı' }} />
           <Stack.Screen name="search" options={{ title: 'Ara', presentation: 'modal' }} />
           <Stack.Screen name="favorites" options={{ title: 'Favoriler' }} />
+          <Stack.Screen name="settings" options={{ title: 'Ayarlar' }} />
         </Stack>
       </ShareIntentProvider>
     </DbProvider>

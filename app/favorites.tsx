@@ -8,7 +8,7 @@ import {
   SafeAreaView,
   RefreshControl,
 } from 'react-native';
-import { useRouter } from 'expo-router';
+import { useRouter, useFocusEffect } from 'expo-router';
 import { getColors } from '../src/constants/colors';
 import { LinkCard } from '../src/components/LinkCard';
 import { useDb } from '../src/context/DbContext';
@@ -31,6 +31,12 @@ export default function FavoritesScreen() {
   }, [db]);
 
   useEffect(() => { load(); }, [load]);
+
+  useFocusEffect(
+    useCallback(() => {
+      load();
+    }, [load])
+  );
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);

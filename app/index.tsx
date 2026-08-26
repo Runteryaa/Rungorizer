@@ -11,7 +11,7 @@ import {
   SafeAreaView,
   StatusBar,
 } from 'react-native';
-import { useRouter } from 'expo-router';
+import { useRouter, useFocusEffect } from 'expo-router';
 import { getColors } from '../src/constants/colors';
 import { DomainCard } from '../src/components/DomainCard';
 import { AddLinkModal } from '../src/components/AddLinkModal';
@@ -38,9 +38,17 @@ export default function HomeScreen() {
     setFiltered(data);
   }, [db]);
 
+  // refreshKey değişince yükle (share intent / AddLinkModal tetikler)
   useEffect(() => {
     if (isReady) loadDomains();
   }, [isReady, loadDomains, refreshKey]);
+
+  // Ekrana her odaklanıldığında yükle (başka ekrandan geri dönüşlerde)
+  useFocusEffect(
+    useCallback(() => {
+      if (isReady) loadDomains();
+    }, [isReady, loadDomains])
+  );
 
   useEffect(() => {
     if (search.trim() === '') {
@@ -84,6 +92,12 @@ export default function HomeScreen() {
             onPress={() => router.push('/favorites')}
           >
             <Text style={styles.iconBtnText}>⭐</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.iconBtn, { backgroundColor: colors.card, borderColor: colors.border }]}
+            onPress={() => router.push('/settings')}
+          >
+            <Text style={styles.iconBtnText}>⚙️</Text>
           </TouchableOpacity>
         </View>
       </View>

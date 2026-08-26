@@ -64,18 +64,19 @@ export function AddLinkModal({ visible, initialUrl = '', onClose, onAdded }: Add
 
     try {
       const domain = getDomain(finalUrl);
-      // First insert with URL only
+      // Önce sadece URL ile kaydet
       const id = await insertLink(db, { url: finalUrl, domain });
 
-      // Then fetch metadata in background
+      // Modal'ı kapat ve listeyi hemen güncelle
+      onClose();
+      onAdded();
+
+      // Metadata'yı arka planda çek, bitince listeyi tekrar güncelle
       fetchLinkMetadata(finalUrl).then(async (meta) => {
         const { updateLinkMetadata } = await import('../db/database');
         await updateLinkMetadata(db, id, meta);
         onAdded();
       });
-
-      onAdded();
-      onClose();
     } catch (e: any) {
       if (e?.message?.includes('UNIQUE')) {
         setError('Bu link zaten kaydedilmiş.');

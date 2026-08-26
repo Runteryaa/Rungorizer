@@ -10,7 +10,7 @@ import {
   RefreshControl,
   SafeAreaView,
 } from 'react-native';
-import { useLocalSearchParams, useRouter, useNavigation } from 'expo-router';
+import { useLocalSearchParams, useRouter, useNavigation, useFocusEffect } from 'expo-router';
 import { getColors } from '../../src/constants/colors';
 import { LinkCard } from '../../src/components/LinkCard';
 import { AddLinkModal } from '../../src/components/AddLinkModal';
@@ -46,6 +46,13 @@ export default function DomainScreen() {
     navigation.setOptions({ title: domain });
     loadLinks();
   }, [domain, loadLinks, navigation]);
+
+  // Link detayından geri dönünce (okundu/favori değişebilir) listeyi güncelle
+  useFocusEffect(
+    useCallback(() => {
+      loadLinks();
+    }, [loadLinks])
+  );
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);

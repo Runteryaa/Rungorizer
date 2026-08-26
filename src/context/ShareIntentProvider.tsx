@@ -1,4 +1,13 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
+import {
+  ToastAndroid,
+  Platform,
+  View,
+  Text,
+  StyleSheet,
+  Animated,
+  BackHandler,
+} from 'react-native';
 import {
   ShareIntentProvider as ExpoShareIntentProvider,
   useShareIntentContext,
@@ -10,8 +19,29 @@ import { fetchLinkMetadata, getDomain } from '../services/metadata';
 
 function ShareIntentHandler() {
   const { hasShareIntent, shareIntent, resetShareIntent } = useShareIntentContext();
-  const { db } = useDb();
+  const { db, refresh, silentSave } = useDb();
   const router = useRouter();
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const fadeAnim = useRef(new Animated.Value(0)).current;
+
+  const showInAppToast = (msg: string) => {
+    setToastMessage(msg);
+    Animated.sequence([
+      Animated.timing(fadeAnim, {
+        toValue: 1,
+        duration: 250,
+        useNativeDriver: true,
+      }),
+      Animated.delay(2200),
+      Animated.timing(fadeAnim, {
+        toValue: 0,
+        duration: 250,
+        useNativeDriver: true,
+      }),
+    ]).start(() => {
+      setToastMessage(null);
+    });
+  };
 
   useEffect(() => {
     if (!hasShareIntent || !db) return;
@@ -23,20 +53,53 @@ function ShareIntentHandler() {
       try {
         const domain = getDomain(url);
         const id = await insertLink(db, { url, domain });
-        // Fetch metadata async
-        fetchLinkMetadata(url).then((meta) =>
-          updateLinkMetadata(db, id, meta)
-        );
+
+        // UI'ı hemen güncelle
+        refresh();
+
+        // Metadata'yı arka planda çek, bitince tekrar güncelle
+        fetchLinkMetadata(url).then(async (meta) => {
+          await updateLinkMetadata(db, id, meta);
+          refresh();
+        });
+
         resetShareIntent();
-        router.push(`/link/${id}`);
+
+        if (silentSave) {
+          // Sessiz kayıt modu aktif:
+          // 1. Android sistem toast bildirimi göster
+          if (Platform.OS === 'android') {
+            ToastAndroid.show(`🔗 Link kaydedildi: ${domain}`, ToastAndroid.SHORT);
+          }
+          // 2. Uygulama içi toast göster
+          showInAppToast(`🔗 Link kaydedildi: ${domain}`);
+
+          // 3. Kullanıcı tarayıcıda kalabilsin diye arka plana at/kapat
+          setTimeout(() => {
+            if (Platform.OS === 'android') {
+              BackHandler.exitApp();
+            }
+          }, 1200);
+        } else {
+          // Normal mod: Link detay sayfasına yönlendir
+          router.push(`/link/${id}`);
+        }
       } catch (e) {
         console.warn('Share intent handling error:', e);
         resetShareIntent();
       }
     })();
-  }, [hasShareIntent]);
+  }, [hasShareIntent, silentSave, db]);
 
-  return null;
+  if (!toastMessage) return null;
+
+  return (
+    <Animated.View style={[styles.toastContainer, { opacity: fadeAnim }]}>
+      <View style={styles.toastCard}>
+        <Text style={styles.toastText}>{toastMessage}</Text>
+      </View>
+    </Animated.View>
+  );
 }
 
 interface ShareIntentProviderProps {
@@ -46,8 +109,39 @@ interface ShareIntentProviderProps {
 export function ShareIntentProvider({ children }: ShareIntentProviderProps) {
   return (
     <ExpoShareIntentProvider>
-      <ShareIntentHandler />
       {children}
+      <ShareIntentHandler />
     </ExpoShareIntentProvider>
   );
 }
+
+const styles = StyleSheet.create({
+  toastContainer: {
+    position: 'absolute',
+    bottom: 50,
+    left: 20,
+    right: 20,
+    zIndex: 99999,
+    alignItems: 'center',
+    pointerEvents: 'none',
+  },
+  toastCard: {
+    backgroundColor: 'rgba(28, 28, 30, 0.95)',
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+    borderRadius: 24,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 10,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.15)',
+  },
+  toastText: {
+    color: '#ffffff',
+    fontSize: 14,
+    fontWeight: '600',
+    textAlign: 'center',
+  },
+});
