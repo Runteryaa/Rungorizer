@@ -21,35 +21,7 @@
       "adaptiveIcon": {
         "foregroundImage": "./assets/android-icon-foreground.png",
         "backgroundColor": "#007AFF"
-      },
-      "intentFilters": [
-        {
-          "action": "android.intent.action.SEND",
-          "data": [
-            {
-              "mimeType": "text/plain"
-            }
-          ],
-          "category": [
-            "android.intent.category.DEFAULT"
-          ]
-        },
-        {
-          "action": "android.intent.action.VIEW",
-          "data": [
-            {
-              "scheme": "https"
-            },
-            {
-              "scheme": "http"
-            }
-          ],
-          "category": [
-            "android.intent.category.DEFAULT",
-            "android.intent.category.BROWSABLE"
-          ]
-        }
-      ]
+      }
     },
     "web": {
       "bundler": "metro",
@@ -61,13 +33,14 @@
       [
         "expo-share-intent",
         {
+          "disableAndroid": true,
           "iosActivationRules": {
             "NSExtensionActivationSupportsWebURLWithMaxCount": 1,
             "NSExtensionActivationSupportsWebPageWithMaxCount": 1
-          },
-          "androidIntentFilters": ["text/plain"]
+          }
         }
-      ]
+      ],
+      "./plugins/withShareActivity"
     ],
     "experiments": {
       "typedRoutes": true
