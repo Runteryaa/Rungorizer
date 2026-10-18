@@ -170,7 +170,7 @@ const styles = StyleSheet.create({
     borderBottomWidth: 0,
     borderColor: COLORS.border,
     paddingHorizontal: 20,
-    paddingBottom: Platform.OS === 'ios' ? 40 : 24,
+    paddingBottom: 24,
     ...SHADOWS.glass,
   },
   handleContainer: {
