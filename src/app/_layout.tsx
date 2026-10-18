@@ -1,5 +1,5 @@
 import React, { useEffect } from 'react';
-import { View, StyleSheet, BackHandler } from 'react-native';
+import { View, StyleSheet, BackHandler, AppState } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { Stack, router } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
@@ -11,6 +11,7 @@ import { COLORS } from '../constants/theme';
 
 export default function RootLayout() {
   const initialize = useLinksStore((state) => state.initialize);
+  const refresh = useLinksStore((state) => state.refresh);
   const addLink = useLinksStore((state) => state.addLink);
 
   useEffect(() => {
@@ -19,7 +20,15 @@ export default function RootLayout() {
       useSettingsStore.getState().loadSettings();
     });
 
-    // 2. Set up Android Share Intent & deep link listener
+    // 2. Refresh store automatically whenever app returns to foreground
+    const appStateSub = AppState.addEventListener('change', (nextState) => {
+      if (nextState === 'active') {
+        refresh();
+        useSettingsStore.getState().loadSettings();
+      }
+    });
+
+    // 3. Set up Android Share Intent & deep link listener
     const removeListener = setupIntentListener(async (url) => {
       const shareMode = useSettingsStore.getState().shareMode;
       if (shareMode === 'silent') {
@@ -39,6 +48,7 @@ export default function RootLayout() {
 
     return () => {
       removeListener();
+      appStateSub.remove();
     };
   }, []);
 

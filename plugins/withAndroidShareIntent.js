@@ -10,6 +10,7 @@ const SHARE_HANDLER_ACTIVITY_KOTLIN = `package com.runterya.rungorize
 
 import android.app.Activity
 import android.content.ContentValues
+import android.content.Context
 import android.content.Intent
 import android.database.sqlite.SQLiteDatabase
 import android.net.Uri
@@ -18,6 +19,7 @@ import android.os.Handler
 import android.os.Looper
 import android.widget.Toast
 import java.io.BufferedReader
+import java.io.File
 import java.io.InputStreamReader
 import java.net.HttpURLConnection
 import java.net.URL
@@ -109,10 +111,46 @@ class ShareHandlerActivity : Activity() {
     return url
   }
 
+  // Returns the exact database file that expo-sqlite uses on Android: context.filesDir/SQLite/rungorize.db
+  private fun getExpoDatabaseFile(context: Context): File {
+    val dir = File(context.filesDir, "SQLite")
+    if (!dir.exists()) {
+      dir.mkdirs()
+    }
+    return File(dir, "rungorize.db")
+  }
+
+  // Migrates any previous records from legacy /databases/ directory if present
+  private fun ensureDatabaseMigration(context: Context) {
+    try {
+      val legacy = context.getDatabasePath("rungorize.db")
+      val expoDb = getExpoDatabaseFile(context)
+      if (legacy.exists() && legacy.length() > 0) {
+        if (!expoDb.exists() || expoDb.length() == 0L) {
+          legacy.copyTo(expoDb, overwrite = true)
+        } else {
+          val db = SQLiteDatabase.openOrCreateDatabase(expoDb, null)
+          try {
+            db.execSQL("ATTACH DATABASE ? AS legacyDb", arrayOf(legacy.path))
+            db.execSQL("INSERT OR IGNORE INTO folders SELECT * FROM legacyDb.folders")
+            db.execSQL("INSERT OR IGNORE INTO links SELECT * FROM legacyDb.links")
+            db.execSQL("DETACH DATABASE legacyDb")
+          } catch (e: Exception) {
+            // ignore
+          } finally {
+            db.close()
+          }
+        }
+      }
+    } catch (e: Exception) {
+      e.printStackTrace()
+    }
+  }
+
   private fun getShareMode(): String {
     var mode = "silent"
     try {
-      val dbFile = getDatabasePath("rungorize.db")
+      val dbFile = getExpoDatabaseFile(applicationContext)
       if (dbFile.exists()) {
         val db = SQLiteDatabase.openDatabase(dbFile.path, null, SQLiteDatabase.OPEN_READONLY)
         val cursor = db.rawQuery("SELECT value FROM settings WHERE key = 'share_mode'", null)
@@ -154,14 +192,14 @@ class ShareHandlerActivity : Activity() {
     }
   }
 
-  private fun handleSilentSave(context: android.content.Context, originalUrl: String) {
+  private fun handleSilentSave(context: Context, originalUrl: String) {
     try {
+      ensureDatabaseMigration(context)
       val cleanUrl = cleanTrackingParams(originalUrl)
-      val dbFile = context.getDatabasePath("rungorize.db")
-      dbFile.parentFile?.mkdirs()
+      val dbFile = getExpoDatabaseFile(context)
       val db = SQLiteDatabase.openOrCreateDatabase(dbFile, null)
 
-      // Ensure SQLite tables
+      // Ensure SQLite tables matching Expo schema
       db.execSQL("""
         CREATE TABLE IF NOT EXISTS folders (
           id TEXT PRIMARY KEY,
@@ -303,7 +341,7 @@ class ShareHandlerActivity : Activity() {
     }
   }
 
-  private fun fetchAndApplyOpenGraph(context: android.content.Context, linkId: String, urlStr: String) {
+  private fun fetchAndApplyOpenGraph(context: Context, linkId: String, urlStr: String) {
     try {
       val url = URL(urlStr)
       val conn = url.openConnection() as HttpURLConnection
@@ -332,7 +370,7 @@ class ShareHandlerActivity : Activity() {
         val image = extractMeta(html, "og:image") ?: extractMeta(html, "twitter:image")
 
         if (!title.isNullOrEmpty() || !image.isNullOrEmpty()) {
-          val dbFile = context.getDatabasePath("rungorize.db")
+          val dbFile = getExpoDatabaseFile(context)
           val db = SQLiteDatabase.openDatabase(dbFile.path, null, SQLiteDatabase.OPEN_READWRITE)
           val cv = ContentValues()
           if (!title.isNullOrEmpty()) cv.put("title", title)
