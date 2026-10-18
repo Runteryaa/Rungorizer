@@ -1,6 +1,6 @@
 import * as SQLite from 'expo-sqlite';
 import { FolderRecord, LinkRecord, SCHEMA_SQL } from './schema';
-import { ScrapedMetadata } from '../services/metadataScraper';
+import { ScrapedMetadata, extractYouTubeVideoId } from '../services/metadataScraper';
 import { ParsedDomainInfo } from '../services/domainParser';
 
 export type { FolderRecord, LinkRecord };
@@ -477,5 +477,70 @@ export async function getSetting(key: string, defaultValue: string = ''): Promis
 export async function setSetting(key: string, value: string): Promise<void> {
   const db = getDatabase();
   await db.runAsync('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)', [key, value]);
+}
+
+/**
+ * Automatically repairs existing YouTube links that were saved with missing metadata (title "YouTube" or missing thumbnail).
+ */
+export async function repairIncompleteYouTubeLinks(): Promise<number> {
+  const db = getDatabase();
+  try {
+    const candidateLinks = await db.getAllAsync<LinkRecord>(
+      `SELECT * FROM links 
+       WHERE (clean_url LIKE '%youtube.com%' OR clean_url LIKE '%youtu.be%')
+         AND (title = 'YouTube' OR title = 'Watch' OR image_url IS NULL OR image_url = '')`
+    );
+
+    if (!candidateLinks || candidateLinks.length === 0) return 0;
+
+    let repairedCount = 0;
+    for (const link of candidateLinks) {
+      const videoId = extractYouTubeVideoId(link.clean_url || link.original_url);
+      if (!videoId) continue;
+
+      const canonical = `https://www.youtube.com/watch?v=${videoId}`;
+      const defaultThumb = `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`;
+      let newTitle: string | null = null;
+      let newAuthor: string | null = null;
+      let newThumb = defaultThumb;
+
+      try {
+        const oembedUrl = `https://www.youtube.com/oembed?url=${encodeURIComponent(canonical)}&format=json`;
+        const res = await fetch(oembedUrl);
+        if (res.ok) {
+          const data = await res.json();
+          if (data && data.title) {
+            newTitle = data.title.trim();
+            newAuthor = data.author_name ? `${data.author_name} • YouTube` : null;
+            newThumb = data.thumbnail_url || defaultThumb;
+          }
+        }
+      } catch {
+        // use fallback thumbnail
+      }
+
+      const updatedTitle =
+        newTitle && newTitle.toLowerCase() !== 'youtube'
+          ? newTitle
+          : link.title !== 'YouTube' && link.title !== 'Watch'
+          ? link.title
+          : 'YouTube Video';
+      const updatedDesc = newAuthor || link.description;
+      const updatedThumb = newThumb || link.image_url;
+
+      await db.runAsync(
+        `UPDATE links 
+         SET title = ?, description = ?, image_url = ?, updated_at = ?
+         WHERE id = ?`,
+        [updatedTitle, updatedDesc, updatedThumb, Date.now(), link.id]
+      );
+      repairedCount++;
+    }
+
+    return repairedCount;
+  } catch (err) {
+    console.warn('repairIncompleteYouTubeLinks error:', err);
+    return 0;
+  }
 }
 

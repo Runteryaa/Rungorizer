@@ -18,6 +18,7 @@ import {
   deleteFolder as dbDeleteFolder,
   exportDatabaseBackup,
   importDatabaseBackup,
+  repairIncompleteYouTubeLinks,
   BackupData,
 } from '../db/database';
 import { scrapeMetadata } from '../services/metadataScraper';
@@ -92,6 +93,13 @@ export const useLinksStore = create<LinksState>((set, get) => ({
         getLinks(),
       ]);
       set({ folders, links, isLoading: false });
+
+      // In the background, auto-repair any YouTube links saved previously with missing metadata
+      repairIncompleteYouTubeLinks().then((count) => {
+        if (count > 0) {
+          get().refresh();
+        }
+      });
     } catch (error) {
       console.error('Veritabanı başlatma hatası:', error);
       set({ isLoading: false });

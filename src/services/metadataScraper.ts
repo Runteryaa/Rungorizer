@@ -66,6 +66,156 @@ function fallbackTitleFromUrl(url: string, domainInfo: ParsedDomainInfo): string
   return domainInfo.displayName;
 }
 
+/**
+ * Extracts YouTube video ID from various URL formats:
+ * - https://www.youtube.com/watch?v=VIDEO_ID
+ * - https://youtu.be/VIDEO_ID
+ * - https://www.youtube.com/shorts/VIDEO_ID
+ * - https://www.youtube.com/embed/VIDEO_ID
+ * - https://m.youtube.com/watch?v=VIDEO_ID
+ * - https://music.youtube.com/watch?v=VIDEO_ID
+ */
+export function extractYouTubeVideoId(url: string): string | null {
+  if (!url) return null;
+  try {
+    let s = url.trim();
+    if (!/^https?:\/\//i.test(s)) s = 'https://' + s;
+    const parsed = new URL(s);
+    const host = parsed.hostname.toLowerCase();
+
+    // youtu.be/VIDEO_ID
+    if (host === 'youtu.be' || host.endsWith('.youtu.be')) {
+      const id = parsed.pathname.slice(1).split('/')[0].split('?')[0];
+      return id && id.length >= 5 ? id : null;
+    }
+
+    if (host.includes('youtube.com')) {
+      // /watch?v=VIDEO_ID
+      const v = parsed.searchParams.get('v');
+      if (v && v.length >= 5) return v;
+
+      // /shorts/VIDEO_ID, /embed/VIDEO_ID, /live/VIDEO_ID, /v/VIDEO_ID
+      const pathParts = parsed.pathname.split('/').filter(Boolean);
+      if (
+        pathParts.length >= 2 &&
+        ['shorts', 'embed', 'live', 'v'].includes(pathParts[0].toLowerCase())
+      ) {
+        const id = pathParts[1].split('?')[0];
+        return id && id.length >= 5 ? id : null;
+      }
+    }
+  } catch {
+    // fallback regex below
+  }
+  const match = url.match(
+    /(?:youtu\.be\/|youtube\.com\/(?:embed\/|v\/|watch\?v=|shorts\/|live\/))([a-zA-Z0-9_-]{11})/i
+  );
+  return match ? match[1] : null;
+}
+
+/**
+ * Dedicated metadata scraper for YouTube using official oEmbed and CDN thumbnails.
+ */
+async function scrapeYouTubeMetadata(
+  rawUrl: string,
+  sanitizedUrl: string,
+  domainInfo: ParsedDomainInfo,
+  videoId: string
+): Promise<ScrapedMetadata | null> {
+  const canonicalUrl = `https://www.youtube.com/watch?v=${videoId}`;
+  const defaultThumbnail = `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`;
+
+  // 1. Try YouTube official oEmbed API first (fast, reliable, official, bypasses SPA/consent)
+  try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 4000);
+
+    const oembedUrl = `https://www.youtube.com/oembed?url=${encodeURIComponent(canonicalUrl)}&format=json`;
+    const response = await fetch(oembedUrl, {
+      signal: controller.signal,
+      headers: {
+        Accept: 'application/json',
+      },
+    });
+    clearTimeout(timeoutId);
+
+    if (response.ok) {
+      const data = await response.json();
+      if (data && data.title) {
+        return {
+          url: rawUrl,
+          cleanUrl: sanitizedUrl,
+          title: decodeHtmlEntities(data.title.trim()),
+          description: data.author_name
+            ? `${data.author_name} • YouTube`
+            : `${domainInfo.displayName} üzerinden kaydedildi`,
+          imageUrl: data.thumbnail_url || defaultThumbnail,
+          faviconUrl: domainInfo.faviconUrl,
+          domainInfo,
+        };
+      }
+    }
+  } catch {
+    // proceed to HTML fallback
+  }
+
+  // 2. Fallback to HTML scrape with crawler User-Agent
+  try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 5000);
+
+    const response = await fetch(canonicalUrl, {
+      signal: controller.signal,
+      headers: {
+        'User-Agent': 'facebookexternalhit/1.1 (+http://www.facebook.com/externalhit_uatext.html)',
+        'Accept-Language': 'tr-TR,tr;q=0.9,en-US;q=0.8,en;q=0.7',
+      },
+    });
+    clearTimeout(timeoutId);
+
+    if (response.ok) {
+      const html = await response.text();
+      const ogTitle = extractMeta(html, ['og:title', 'twitter:title']);
+      const ogDesc = extractMeta(html, ['og:description', 'twitter:description', 'description']);
+      const ogImage = extractMeta(html, ['og:image', 'twitter:image:src', 'twitter:image']);
+
+      let title = ogTitle;
+      if (!title) {
+        const titleMatch = html.match(/<title[^>]*>([^<]+)<\/title>/i);
+        if (titleMatch && titleMatch[1]) {
+          title = decodeHtmlEntities(titleMatch[1].trim());
+          title = title.replace(/\s*-\s*YouTube$/i, '');
+        }
+      }
+
+      if (title && title.toLowerCase() !== 'youtube') {
+        return {
+          url: rawUrl,
+          cleanUrl: sanitizedUrl,
+          title: title.trim(),
+          description: ogDesc || `${domainInfo.displayName} üzerinden kaydedildi`,
+          imageUrl: ogImage || defaultThumbnail,
+          faviconUrl: domainInfo.faviconUrl,
+          domainInfo,
+        };
+      }
+    }
+  } catch {
+    // proceed to final fallback
+  }
+
+  // 3. Guaranteed fallback with high-res video thumbnail
+  return {
+    url: rawUrl,
+    cleanUrl: sanitizedUrl,
+    title: domainInfo.displayName,
+    description: `${domainInfo.displayName} üzerinden kaydedildi`,
+    imageUrl: defaultThumbnail,
+    faviconUrl: domainInfo.faviconUrl,
+    domainInfo,
+  };
+}
+
 export async function scrapeMetadata(rawUrl: string): Promise<ScrapedMetadata> {
   const sanitizedUrl = cleanUrl(rawUrl);
   const domainInfo = parseDomain(sanitizedUrl);
@@ -80,14 +230,22 @@ export async function scrapeMetadata(rawUrl: string): Promise<ScrapedMetadata> {
     domainInfo,
   };
 
+  // 1. YouTube specialized extraction
+  const ytVideoId = extractYouTubeVideoId(sanitizedUrl);
+  if (ytVideoId) {
+    const ytResult = await scrapeYouTubeMetadata(rawUrl, sanitizedUrl, domainInfo, ytVideoId);
+    if (ytResult) {
+      return ytResult;
+    }
+  }
+
+  // 2. General web page extraction
   try {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 6000);
 
-    const isTwitter = sanitizedUrl.includes('twitter.com') || sanitizedUrl.includes('x.com');
-    const userAgent = isTwitter
-      ? 'facebookexternalhit/1.1 (+http://www.facebook.com/externalhit_uatext.html)'
-      : 'Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Mobile Safari/537.36 Rungorize/1.0';
+    // Social crawler user agent: modern web platforms provide pre-rendered Open Graph tags
+    const userAgent = 'facebookexternalhit/1.1 (+http://www.facebook.com/externalhit_uatext.html)';
 
     const response = await fetch(sanitizedUrl, {
       signal: controller.signal,
@@ -104,9 +262,9 @@ export async function scrapeMetadata(rawUrl: string): Promise<ScrapedMetadata> {
       return defaultResult;
     }
 
-    // Read only first 150KB to keep memory & speed optimal on mobile
+    // Read full head/body chunk without artificial 150KB cutoff
     const html = await response.text();
-    const headChunk = html.slice(0, 150000);
+    const headChunk = html.slice(0, 1500000);
 
     // Extract Title
     const ogTitle = extractMeta(headChunk, ['og:title', 'twitter:title']);
