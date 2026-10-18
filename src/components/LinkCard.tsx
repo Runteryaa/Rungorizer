@@ -31,6 +31,7 @@ import { useSettingsStore } from '../stores/useSettingsStore';
 interface LinkCardProps {
   link: LinkRecord;
   showDomainBadge?: boolean;
+  subdomainText?: string;
   isSelectionMode?: boolean;
   isSelected?: boolean;
   onToggleSelect?: (id: string) => void;
@@ -41,6 +42,7 @@ interface LinkCardProps {
 export function LinkCard({
   link,
   showDomainBadge = false,
+  subdomainText,
   isSelectionMode = false,
   isSelected = false,
   onToggleSelect,
@@ -155,6 +157,19 @@ export function LinkCard({
             ) : null}
             <Text style={[styles.domainBadgeText, { color: accent }]}>
               {link.folder_display_name}
+            </Text>
+          </View>
+        ) : subdomainText ? (
+          <View style={styles.domainBadgeRow}>
+            {link.favicon_url ? (
+              <Image
+                source={{ uri: link.favicon_url }}
+                style={styles.badgeFavicon}
+                resizeMode="contain"
+              />
+            ) : null}
+            <Text style={[styles.domainBadgeText, { color: accent }]}>
+              {subdomainText}
             </Text>
           </View>
         ) : <View />}

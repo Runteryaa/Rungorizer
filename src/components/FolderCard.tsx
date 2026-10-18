@@ -12,11 +12,12 @@ import { COLORS, RADIUS, SHADOWS, TOUCH, TYPOGRAPHY } from '../constants/theme';
 
 interface FolderCardProps {
   folder: FolderRecord;
+  subdomainCount?: number;
   onPress: () => void;
   onLongPress?: () => void;
 }
 
-export function FolderCard({ folder, onPress, onLongPress }: FolderCardProps) {
+export function FolderCard({ folder, subdomainCount, onPress, onLongPress }: FolderCardProps) {
   const accent = folder.color || COLORS.defaultAccent;
   const isPinned = folder.is_pinned === 1;
 
@@ -64,7 +65,7 @@ export function FolderCard({ folder, onPress, onLongPress }: FolderCardProps) {
           {folder.display_name}
         </Text>
         <Text numberOfLines={1} style={styles.domainName}>
-          {folder.domain}
+          {folder.domain}{subdomainCount && subdomainCount > 1 ? ` • ${subdomainCount} alt klasör` : ''}
         </Text>
       </View>
 

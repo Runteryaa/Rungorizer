@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import {
   StyleSheet,
   Text,
@@ -18,6 +18,7 @@ import { FloatingActionButton } from '../../components/FloatingActionButton';
 import { COLORS, TYPOGRAPHY } from '../../constants/theme';
 import { useLinksStore } from '../../stores/useLinksStore';
 import { FolderRecord } from '../../db/schema';
+import { extractSubdomain } from '../../services/subdomainHelper';
 
 const { width } = Dimensions.get('window');
 const COLUMN_WIDTH = (width - 32 - 12) / 2;
@@ -37,6 +38,19 @@ export default function FoldersScreen() {
     setIsRefreshing(false);
   };
 
+  const subdomainCounts = useMemo(() => {
+    const counts: Record<string, Set<string>> = {};
+    links.forEach((l) => {
+      if (!counts[l.folder_id]) counts[l.folder_id] = new Set();
+      counts[l.folder_id].add(extractSubdomain(l.clean_url || l.original_url));
+    });
+    const result: Record<string, number> = {};
+    Object.entries(counts).forEach(([fid, set]) => {
+      result[fid] = set.size;
+    });
+    return result;
+  }, [links]);
+
   const filteredFolders = folders.filter((f) => {
     if (!search.trim()) return true;
     const q = search.toLowerCase();
@@ -50,6 +64,7 @@ export default function FoldersScreen() {
     <View style={styles.gridItem}>
       <FolderCard
         folder={item}
+        subdomainCount={subdomainCounts[item.id] || 0}
         onPress={() => router.push(`/folder/${item.id}`)}
         onLongPress={() => router.push({ pathname: '/modal/edit-folder', params: { id: item.id } })}
       />
