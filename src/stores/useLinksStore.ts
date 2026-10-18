@@ -21,7 +21,7 @@ import {
   repairIncompleteYouTubeLinks,
   BackupData,
 } from '../db/database';
-import { scrapeMetadata } from '../services/metadataScraper';
+import { scrapeMetadata, extractTagsFromContent } from '../services/metadataScraper';
 import { extractUrlFromText } from '../services/urlCleaner';
 
 export interface ToastNotification {
@@ -127,8 +127,12 @@ export const useLinksStore = create<LinksState>((set, get) => ({
 
     set({ isSaving: true });
     try {
+      // Extract any hashtags from rawText if present
+      const textTags = extractTagsFromContent(rawText, null, null);
+      const initialTags = Array.from(new Set([...(tags || []), ...textTags])).slice(0, 5);
+
       const meta = await scrapeMetadata(url);
-      const { link, folder, isExisting } = await saveLinkFromMetadata(meta, notes, tags);
+      const { link, folder, isExisting } = await saveLinkFromMetadata(meta, notes, initialTags);
 
       // Refresh local store
       await get().refresh();

@@ -9,6 +9,7 @@ export interface ScrapedMetadata {
   imageUrl: string | null;
   faviconUrl: string;
   domainInfo: ParsedDomainInfo;
+  extractedTags?: string[];
 }
 
 // Decodes basic HTML entities like &amp;, &quot;, &#39;, &lt;, &gt;
@@ -64,6 +65,70 @@ function fallbackTitleFromUrl(url: string, domainInfo: ParsedDomainInfo): string
     // ignore
   }
   return domainInfo.displayName;
+}
+
+/**
+ * Extracts hashtags (#tag) and keywords from title, description, and HTML meta tags.
+ * Supports Unicode/Turkish characters (ç, ğ, ı, ö, ş, ü, etc.).
+ * Returns an array of normalized, lowercase tags (without leading #), max 5 tags.
+ */
+export function extractTagsFromContent(
+  title?: string | null,
+  description?: string | null,
+  html?: string | null
+): string[] {
+  const result: string[] = [];
+  const seen = new Set<string>();
+
+  const addTag = (raw: string) => {
+    if (!raw) return;
+    const clean = raw.trim().replace(/^#+/, '').toLowerCase();
+    if (clean.length >= 2 && clean.length <= 30 && !seen.has(clean)) {
+      if (/^[\p{L}\p{N}_-]+$/u.test(clean)) {
+        seen.add(clean);
+        result.push(clean);
+      }
+    }
+  };
+
+  // 1. Extract hashtags from Title
+  if (title) {
+    const hashtagRegex = /#([\p{L}\p{N}_-]{2,30})/gu;
+    const matches = title.matchAll(hashtagRegex);
+    for (const match of matches) {
+      if (match[1]) addTag(match[1]);
+    }
+  }
+
+  // 2. Extract hashtags from Description
+  if (description) {
+    const hashtagRegex = /#([\p{L}\p{N}_-]{2,30})/gu;
+    const matches = description.matchAll(hashtagRegex);
+    for (const match of matches) {
+      if (match[1]) addTag(match[1]);
+    }
+  }
+
+  // 3. Extract keywords or article:tag from HTML if available
+  if (html) {
+    const keywordsMatch =
+      html.match(/<meta[^>]+name=["']keywords["'][^>]+content=["']([^"']+)["']/i) ||
+      html.match(/<meta[^>]+content=["']([^"']+)["'][^>]+name=["']keywords["']/i);
+    if (keywordsMatch && keywordsMatch[1]) {
+      const parts = keywordsMatch[1].split(/[,;]/);
+      for (const p of parts) {
+        addTag(p);
+      }
+    }
+
+    const articleTagRegex = /<meta[^>]+property=["']article:tag["'][^>]+content=["']([^"']+)["']/gi;
+    let articleMatch;
+    while ((articleMatch = articleTagRegex.exec(html)) !== null) {
+      if (articleMatch[1]) addTag(articleMatch[1]);
+    }
+  }
+
+  return result.slice(0, 5);
 }
 
 /**
@@ -142,16 +207,43 @@ async function scrapeYouTubeMetadata(
     if (response.ok) {
       const data = await response.json();
       if (data && data.title) {
+        let extractedTags = extractTagsFromContent(data.title, null, null);
+        let description = data.author_name
+          ? `${data.author_name} • YouTube`
+          : `${domainInfo.displayName} üzerinden kaydedildi`;
+
+        // If fewer than 5 tags from title, check if description has hashtags
+        if (extractedTags.length < 5) {
+          try {
+            const htmlRes = await fetch(canonicalUrl, {
+              headers: {
+                'User-Agent': 'facebookexternalhit/1.1 (+http://www.facebook.com/externalhit_uatext.html)',
+                'Accept-Language': 'tr-TR,tr;q=0.9,en-US;q=0.8,en;q=0.7',
+              },
+            });
+            if (htmlRes.ok) {
+              const html = await htmlRes.text();
+              const ogDesc = extractMeta(html, ['og:description', 'twitter:description', 'description']);
+              if (ogDesc) {
+                description = ogDesc;
+              }
+              const moreTags = extractTagsFromContent(data.title, ogDesc, html);
+              extractedTags = Array.from(new Set([...extractedTags, ...moreTags])).slice(0, 5);
+            }
+          } catch {
+            // keep current tags and description
+          }
+        }
+
         return {
           url: rawUrl,
           cleanUrl: sanitizedUrl,
           title: decodeHtmlEntities(data.title.trim()),
-          description: data.author_name
-            ? `${data.author_name} • YouTube`
-            : `${domainInfo.displayName} üzerinden kaydedildi`,
+          description,
           imageUrl: data.thumbnail_url || defaultThumbnail,
           faviconUrl: domainInfo.faviconUrl,
           domainInfo,
+          extractedTags,
         };
       }
     }
@@ -189,6 +281,7 @@ async function scrapeYouTubeMetadata(
       }
 
       if (title && title.toLowerCase() !== 'youtube') {
+        const extractedTags = extractTagsFromContent(title, ogDesc, html);
         return {
           url: rawUrl,
           cleanUrl: sanitizedUrl,
@@ -197,6 +290,7 @@ async function scrapeYouTubeMetadata(
           imageUrl: ogImage || defaultThumbnail,
           faviconUrl: domainInfo.faviconUrl,
           domainInfo,
+          extractedTags,
         };
       }
     }
@@ -213,6 +307,7 @@ async function scrapeYouTubeMetadata(
     imageUrl: defaultThumbnail,
     faviconUrl: domainInfo.faviconUrl,
     domainInfo,
+    extractedTags: [],
   };
 }
 
@@ -228,6 +323,7 @@ export async function scrapeMetadata(rawUrl: string): Promise<ScrapedMetadata> {
     imageUrl: null,
     faviconUrl: domainInfo.faviconUrl,
     domainInfo,
+    extractedTags: [],
   };
 
   // 1. YouTube specialized extraction
@@ -294,6 +390,9 @@ export async function scrapeMetadata(rawUrl: string): Promise<ScrapedMetadata> {
       }
     }
 
+    // Extract Tags from title, description, and HTML keywords/tags
+    const extractedTags = extractTagsFromContent(title, ogDescription, headChunk);
+
     return {
       url: rawUrl,
       cleanUrl: sanitizedUrl,
@@ -302,6 +401,7 @@ export async function scrapeMetadata(rawUrl: string): Promise<ScrapedMetadata> {
       imageUrl: imageUrl || null,
       faviconUrl: domainInfo.faviconUrl,
       domainInfo,
+      extractedTags,
     };
   } catch {
     // If request fails (offline, timeout, etc.), return fallback safely

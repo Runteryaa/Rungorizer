@@ -111,6 +111,10 @@ export default function EditLinkModal() {
       if (meta.title) setTitle(meta.title);
       if (meta.description) setDescription(meta.description);
       if (meta.imageUrl) setImageUrl(meta.imageUrl);
+      if (meta.extractedTags && meta.extractedTags.length > 0) {
+        const merged = Array.from(new Set([...currentTagsList, ...meta.extractedTags])).slice(0, 5);
+        setTags(merged.join(', '));
+      }
       showNotification('Meta verileri web sayfasından yenilendi', undefined, 'success');
     } catch {
       showNotification('Meta verileri çekilirken hata oluştu', undefined, 'error');

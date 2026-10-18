@@ -17,6 +17,7 @@ import * as Clipboard from 'expo-clipboard';
 import { X, ClipboardPaste, Link2, Sparkles, Tag, FileText } from 'lucide-react-native';
 import { COLORS, RADIUS, SHADOWS, TOUCH, TYPOGRAPHY } from '../../constants/theme';
 import { extractUrlFromText } from '../../services/urlCleaner';
+import { extractTagsFromContent } from '../../services/metadataScraper';
 import { useLinksStore } from '../../stores/useLinksStore';
 
 export default function AddLinkModal() {
@@ -24,7 +25,13 @@ export default function AddLinkModal() {
   const params = useLocalSearchParams<{ prefilledUrl?: string }>();
   const [url, setUrl] = useState(params.prefilledUrl || '');
   const [notes, setNotes] = useState('');
-  const [tags, setTags] = useState('');
+  const [tags, setTags] = useState(() => {
+    if (params.prefilledUrl) {
+      const extracted = extractTagsFromContent(params.prefilledUrl, null, null);
+      return extracted.join(', ');
+    }
+    return '';
+  });
   const [hasClipboardText, setHasClipboardText] = useState(false);
 
   const addLink = useLinksStore((state) => state.addLink);
@@ -77,6 +84,12 @@ export default function AddLinkModal() {
         setUrl(extracted);
       } else if (text) {
         setUrl(text.trim());
+      }
+      if (!tags.trim() && text) {
+        const textTags = extractTagsFromContent(text, null, null);
+        if (textTags.length > 0) {
+          setTags(textTags.join(', '));
+        }
       }
     } catch {
       // ignore

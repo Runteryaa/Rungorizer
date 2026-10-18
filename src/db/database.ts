@@ -1,6 +1,10 @@
 import * as SQLite from 'expo-sqlite';
 import { FolderRecord, LinkRecord, SCHEMA_SQL } from './schema';
-import { ScrapedMetadata, extractYouTubeVideoId } from '../services/metadataScraper';
+import {
+  ScrapedMetadata,
+  extractYouTubeVideoId,
+  extractTagsFromContent,
+} from '../services/metadataScraper';
 import { ParsedDomainInfo } from '../services/domainParser';
 
 export type { FolderRecord, LinkRecord };
@@ -146,7 +150,34 @@ export async function saveLinkFromMetadata(
   const now = Date.now();
 
   const folder = await upsertFolder(meta.domainInfo);
-  const safeTags = (tags || []).slice(0, 5);
+
+  // Combine user-provided tags with auto-extracted tags from title & description
+  const combinedTags: string[] = [];
+  const seenTags = new Set<string>();
+
+  // 1. User-provided tags take priority
+  if (tags && Array.isArray(tags)) {
+    tags.forEach((t) => {
+      const clean = t.trim().toLowerCase().replace(/^#+/, '');
+      if (clean && !seenTags.has(clean)) {
+        seenTags.add(clean);
+        combinedTags.push(clean);
+      }
+    });
+  }
+
+  // 2. Extracted tags from title, description, and keywords fill remaining slots up to 5
+  if (meta.extractedTags && Array.isArray(meta.extractedTags)) {
+    meta.extractedTags.forEach((t) => {
+      const clean = t.trim().toLowerCase().replace(/^#+/, '');
+      if (clean && !seenTags.has(clean) && combinedTags.length < 5) {
+        seenTags.add(clean);
+        combinedTags.push(clean);
+      }
+    });
+  }
+
+  const safeTags = combinedTags.slice(0, 5);
   const tagsJson = JSON.stringify(safeTags);
 
   // Check if link already exists by clean_url
@@ -156,8 +187,14 @@ export async function saveLinkFromMetadata(
   );
 
   if (existing) {
-    // Deduplication rule: Bump updated_at and update title/description/notes/tags if provided
-    const newTags = safeTags.length > 0 ? tagsJson : existing.tags;
+    let existingTagsList: string[] = [];
+    try {
+      existingTagsList = JSON.parse(existing.tags || '[]');
+    } catch {}
+
+    // Merge existing tags with newly provided/extracted tags (capped at 5)
+    const mergedList = Array.from(new Set([...safeTags, ...existingTagsList])).slice(0, 5);
+    const newTags = mergedList.length > 0 ? JSON.stringify(mergedList) : existing.tags;
     const cleanNotes = notes && notes.trim() ? notes.trim() : existing.notes;
     await db.runAsync(
       `UPDATE links 
@@ -528,11 +565,25 @@ export async function repairIncompleteYouTubeLinks(): Promise<number> {
       const updatedDesc = newAuthor || link.description;
       const updatedThumb = newThumb || link.image_url;
 
+      // Extract tags if link currently has no tags
+      let existingTags: string[] = [];
+      try {
+        existingTags = JSON.parse(link.tags || '[]');
+      } catch {}
+
+      let updatedTags = link.tags;
+      if (existingTags.length === 0) {
+        const extracted = extractTagsFromContent(updatedTitle, updatedDesc, null);
+        if (extracted.length > 0) {
+          updatedTags = JSON.stringify(extracted.slice(0, 5));
+        }
+      }
+
       await db.runAsync(
         `UPDATE links 
-         SET title = ?, description = ?, image_url = ?, updated_at = ?
+         SET title = ?, description = ?, image_url = ?, tags = ?, updated_at = ?
          WHERE id = ?`,
-        [updatedTitle, updatedDesc, updatedThumb, Date.now(), link.id]
+        [updatedTitle, updatedDesc, updatedThumb, updatedTags, Date.now(), link.id]
       );
       repairedCount++;
     }
