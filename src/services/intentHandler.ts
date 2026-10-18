@@ -25,6 +25,11 @@ export function setupIntentListener(callback: LinkReceivedCallback): () => void 
     // 1. Check if it's a deep link: rungorize://share?text=... or rungorize://add?url=...
     try {
       const parsed = Linking.parse(event.url);
+      if (parsed.hostname === 'share' || parsed.path === 'share') {
+        // Handled cleanly by src/app/share.tsx screen in Expo Router
+        return;
+      }
+
       if (parsed.queryParams?.text) {
         const textParam = String(parsed.queryParams.text);
         let decoded = textParam;

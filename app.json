@@ -25,6 +25,9 @@
           "data": [
             {
               "mimeType": "text/plain"
+            },
+            {
+              "mimeType": "text/*"
             }
           ],
           "category": [
