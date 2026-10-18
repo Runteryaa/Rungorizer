@@ -60,6 +60,11 @@ CREATE TABLE IF NOT EXISTS links (
   FOREIGN KEY (folder_id) REFERENCES folders(id) ON DELETE CASCADE
 );
 
+CREATE TABLE IF NOT EXISTS settings (
+  key TEXT PRIMARY KEY,
+  value TEXT NOT NULL
+);
+
 CREATE INDEX IF NOT EXISTS idx_links_folder_id ON links(folder_id);
 CREATE INDEX IF NOT EXISTS idx_links_created_at ON links(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_links_is_favorite ON links(is_favorite);

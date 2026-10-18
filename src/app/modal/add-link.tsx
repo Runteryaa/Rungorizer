@@ -12,6 +12,7 @@ import {
   Keyboard,
 } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Clipboard from 'expo-clipboard';
 import { X, ClipboardPaste, Link2, Sparkles, Tag, FileText } from 'lucide-react-native';
 import { COLORS, RADIUS, SHADOWS, TOUCH, TYPOGRAPHY } from '../../constants/theme';
@@ -19,6 +20,7 @@ import { extractUrlFromText } from '../../services/urlCleaner';
 import { useLinksStore } from '../../stores/useLinksStore';
 
 export default function AddLinkModal() {
+  const insets = useSafeAreaInsets();
   const params = useLocalSearchParams<{ prefilledUrl?: string }>();
   const [url, setUrl] = useState(params.prefilledUrl || '');
   const [notes, setNotes] = useState('');
@@ -69,7 +71,7 @@ export default function AddLinkModal() {
           behavior={Platform.OS === 'ios' ? 'padding' : undefined}
           style={styles.modalWrapper}
         >
-          <View style={styles.sheetContainer}>
+          <View style={[styles.sheetContainer, { paddingBottom: Math.max(24, insets.bottom + 14) }]}>
             {/* Top Pull Handle (as per design.md) */}
             <View style={styles.handleContainer}>
               <View style={styles.pullHandle} />

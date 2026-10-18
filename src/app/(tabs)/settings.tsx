@@ -6,9 +6,9 @@ import {
   ScrollView,
   Switch,
   TouchableOpacity,
-  SafeAreaView,
   Alert,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import * as Sharing from 'expo-sharing';
 import * as Updates from 'expo-updates';

@@ -12,6 +12,7 @@ import {
   Switch,
 } from 'react-native';
 import { useLocalSearchParams, router } from 'expo-router';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { X, FolderEdit, Check } from 'lucide-react-native';
 import { COLORS, RADIUS, SHADOWS, TOUCH, TYPOGRAPHY } from '../../constants/theme';
 import { useLinksStore } from '../../stores/useLinksStore';
@@ -28,6 +29,7 @@ const COLOR_PRESETS = [
 ];
 
 export default function EditFolderModal() {
+  const insets = useSafeAreaInsets();
   const { id } = useLocalSearchParams<{ id: string }>();
   const folders = useLinksStore((state) => state.folders);
   const updateFolder = useLinksStore((state) => state.updateFolder);
@@ -60,7 +62,7 @@ export default function EditFolderModal() {
           behavior={Platform.OS === 'ios' ? 'padding' : undefined}
           style={styles.modalWrapper}
         >
-          <View style={styles.sheetContainer}>
+          <View style={[styles.sheetContainer, { paddingBottom: Math.max(24, insets.bottom + 14) }]}>
             {/* Top Pull Handle (as per design.md) */}
             <View style={styles.handleContainer}>
               <View style={styles.pullHandle} />

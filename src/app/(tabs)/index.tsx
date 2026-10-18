@@ -5,9 +5,9 @@ import {
   View,
   FlatList,
   RefreshControl,
-  SafeAreaView,
   Dimensions,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import { router } from 'expo-router';
 import { FolderPlus, Sparkles } from 'lucide-react-native';

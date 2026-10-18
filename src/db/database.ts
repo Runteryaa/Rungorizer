@@ -412,3 +412,17 @@ export async function importDatabaseBackup(data: BackupData): Promise<{ foldersC
 
   return { foldersCount, linksCount };
 }
+
+// ================= SETTINGS ================= //
+
+export async function getSetting(key: string, defaultValue: string = ''): Promise<string> {
+  const db = getDatabase();
+  const row = await db.getFirstAsync<{ value: string }>('SELECT value FROM settings WHERE key = ?', [key]);
+  return row ? row.value : defaultValue;
+}
+
+export async function setSetting(key: string, value: string): Promise<void> {
+  const db = getDatabase();
+  await db.runAsync('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)', [key, value]);
+}
+
