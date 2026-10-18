@@ -1,13 +1,13 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef } from 'react';
 import {
   StyleSheet,
   Text,
   View,
   FlatList,
+  Animated,
   Image,
   TouchableOpacity,
   Alert,
-  ScrollView,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
@@ -61,6 +61,39 @@ export default function FolderDetailScreen() {
   // Multi-selection state
   const [isSelectionMode, setIsSelectionMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
+
+  // Scroll animation for collapsible shrinking header
+  const scrollY = useRef(new Animated.Value(0)).current;
+
+  const compactTitleOpacity = scrollY.interpolate({
+    inputRange: [20, 60],
+    outputRange: [0, 1],
+    extrapolate: 'clamp',
+  });
+
+  const compactTitleTranslateY = scrollY.interpolate({
+    inputRange: [20, 60],
+    outputRange: [6, 0],
+    extrapolate: 'clamp',
+  });
+
+  const heroOpacity = scrollY.interpolate({
+    inputRange: [0, 50],
+    outputRange: [1, 0],
+    extrapolate: 'clamp',
+  });
+
+  const heroScale = scrollY.interpolate({
+    inputRange: [0, 50],
+    outputRange: [1, 0.92],
+    extrapolate: 'clamp',
+  });
+
+  const heroTranslateY = scrollY.interpolate({
+    inputRange: [0, 50],
+    outputRange: [0, -8],
+    extrapolate: 'clamp',
+  });
 
   if (!folder) {
     return (
@@ -211,369 +244,421 @@ export default function FolderDetailScreen() {
     <SafeAreaView style={styles.safeArea}>
       <StatusBar style="light" />
 
-      {/* Dynamic Ambient Glow at top matching folder color */}
-      <DynamicGlow color={accent} intensity={0.25} style={styles.glowWrap}>
-        {/* Navigation Bar */}
-        <View style={styles.topBar}>
-          <TouchableOpacity
-            hitSlop={TOUCH.hitSlop}
-            onPress={() => router.back()}
-            style={styles.circleBtn}
-          >
-            <ArrowLeft size={18} color="#ffffff" />
-          </TouchableOpacity>
+      {/* Sticky Compact Navigation Bar */}
+      <View style={styles.topBar}>
+        <TouchableOpacity
+          hitSlop={TOUCH.hitSlop}
+          onPress={() => router.back()}
+          style={styles.circleBtn}
+        >
+          <ArrowLeft size={18} color="#ffffff" />
+        </TouchableOpacity>
 
-          <View style={styles.topRightActions}>
-            {filteredLinks.length > 0 ? (
-              <TouchableOpacity
-                hitSlop={TOUCH.hitSlop}
-                onPress={() => {
-                  if (isSelectionMode) {
-                    handleCancelSelection();
-                  } else {
-                    handleStartSelection();
-                  }
-                }}
-                style={[styles.circleBtn, isSelectionMode && styles.selectActiveBtn]}
-              >
-                <CheckSquare
-                  size={16}
-                  color={isSelectionMode ? COLORS.defaultAccent : COLORS.textTertiary}
-                />
-              </TouchableOpacity>
-            ) : null}
+        {/* Compact Title and Favicon that smoothly fades in on scroll */}
+        <Animated.View
+          style={[
+            styles.topBarCenter,
+            {
+              opacity: compactTitleOpacity,
+              transform: [{ translateY: compactTitleTranslateY }],
+            },
+          ]}
+          pointerEvents="none"
+        >
+          {folder.icon_url ? (
+            <Image
+              source={{ uri: folder.icon_url }}
+              style={styles.topBarFavicon}
+              resizeMode="contain"
+            />
+          ) : (
+            <View style={[styles.topBarFaviconFallback, { backgroundColor: `${accent}33` }]}>
+              <Globe size={11} color={accent} />
+            </View>
+          )}
+          <Text numberOfLines={1} style={styles.topBarTitle}>
+            {folder.display_name}
+          </Text>
+        </Animated.View>
 
+        <View style={styles.topRightActions}>
+          {filteredLinks.length > 0 ? (
             <TouchableOpacity
               hitSlop={TOUCH.hitSlop}
-              onPress={handleTogglePin}
-              style={[styles.circleBtn, isPinned && styles.pinActiveBtn]}
+              onPress={() => {
+                if (isSelectionMode) {
+                  handleCancelSelection();
+                } else {
+                  handleStartSelection();
+                }
+              }}
+              style={[styles.circleBtn, isSelectionMode && styles.selectActiveBtn]}
             >
-              <Pin
+              <CheckSquare
                 size={16}
-                color={isPinned ? '#f59e0b' : COLORS.textTertiary}
-                fill={isPinned ? '#f59e0b' : 'transparent'}
+                color={isSelectionMode ? COLORS.defaultAccent : COLORS.textTertiary}
               />
             </TouchableOpacity>
-
-            <TouchableOpacity
-              hitSlop={TOUCH.hitSlop}
-              onPress={() =>
-                router.push({
-                  pathname: '/modal/edit-folder',
-                  params: { id: folder.id },
-                })
-              }
-              style={styles.circleBtn}
-            >
-              <Edit3 size={16} color={COLORS.textTertiary} />
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              hitSlop={TOUCH.hitSlop}
-              onPress={handleDeleteFolder}
-              style={[styles.circleBtn, styles.deleteCircleBtn]}
-            >
-              <Trash2 size={16} color={COLORS.destructive} />
-            </TouchableOpacity>
-          </View>
-        </View>
-
-        {/* Folder Header Content */}
-        <View style={styles.folderHero}>
-          <View style={styles.heroRow}>
-            <View style={styles.iconContainer}>
-              {folder.icon_url ? (
-                <Image
-                  source={{ uri: folder.icon_url }}
-                  style={styles.iconImage}
-                  resizeMode="contain"
-                />
-              ) : (
-                <View style={[styles.fallbackIcon, { backgroundColor: `${accent}25` }]}>
-                  <Globe size={24} color={accent} />
-                </View>
-              )}
-            </View>
-
-            <View style={styles.heroTextContainer}>
-              <Text numberOfLines={1} style={styles.heroTitle}>
-                {folder.display_name}
-              </Text>
-              <Text numberOfLines={1} style={styles.heroDomain}>
-                {folder.domain} • {folderLinks.length} bağlantı
-              </Text>
-            </View>
-          </View>
-        </View>
-      </DynamicGlow>
-
-      {/* Subdomain Alt Klasörler Bölümü */}
-      {subdomainFolders.length >= 2 ? (
-        <View style={styles.subdomainSection}>
-          <View style={styles.subdomainHeaderRow}>
-            <TouchableOpacity
-              activeOpacity={TOUCH.activeOpacity}
-              onPress={() => setIsSubdomainExpanded((prev) => !prev)}
-              style={styles.subdomainTitleRow}
-            >
-              <FolderTree size={15} color={accent} />
-              <Text style={styles.subdomainSectionTitle}>
-                Alt Klasörler ({subdomainFolders.length})
-              </Text>
-              {isSubdomainExpanded ? (
-                <ChevronUp size={15} color={COLORS.textTertiary} />
-              ) : (
-                <ChevronDown size={15} color={COLORS.textTertiary} />
-              )}
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              activeOpacity={TOUCH.activeOpacity}
-              onPress={() => setIsSubdomainExpanded((prev) => !prev)}
-              style={styles.collapseToggleBtn}
-            >
-              <Text style={styles.collapseToggleText}>
-                {isSubdomainExpanded ? 'Gizle' : 'Göster'}
-              </Text>
-            </TouchableOpacity>
-          </View>
-
-          {/* Active subdomain breadcrumb badge */}
-          {selectedSubdomain ? (
-            <View style={styles.activeSubdomainBar}>
-              <View style={styles.activeSubdomainLeft}>
-                <Text style={styles.activeSubdomainLabel}>Filtrelenen:</Text>
-                <Text numberOfLines={1} style={[styles.activeSubdomainValue, { color: accent }]}>
-                  {selectedSubdomain}
-                </Text>
-              </View>
-              <TouchableOpacity
-                hitSlop={TOUCH.hitSlop}
-                onPress={() => setSelectedSubdomain(null)}
-                style={styles.activeSubdomainClose}
-              >
-                <X size={12} color="#ffffff" />
-              </TouchableOpacity>
-            </View>
           ) : null}
 
-          {/* Vertical list of subdomains when expanded */}
-          {isSubdomainExpanded ? (
-            <View style={styles.subdomainVerticalList}>
-              {/* Tümü (Klasörün tamamı) */}
-              <TouchableOpacity
-                activeOpacity={TOUCH.activeOpacity}
-                onPress={() => {
-                  setSelectedSubdomain(null);
-                  setIsSubdomainExpanded(false);
-                }}
-                style={[
-                  styles.subdomainRow,
-                  selectedSubdomain === null && [
-                    styles.subdomainRowActive,
-                    { borderColor: accent },
+          <TouchableOpacity
+            hitSlop={TOUCH.hitSlop}
+            onPress={handleTogglePin}
+            style={[styles.circleBtn, isPinned && styles.pinActiveBtn]}
+          >
+            <Pin
+              size={16}
+              color={isPinned ? '#f59e0b' : COLORS.textTertiary}
+              fill={isPinned ? '#f59e0b' : 'transparent'}
+            />
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            hitSlop={TOUCH.hitSlop}
+            onPress={() =>
+              router.push({
+                pathname: '/modal/edit-folder',
+                params: { id: folder.id },
+              })
+            }
+            style={styles.circleBtn}
+          >
+            <Edit3 size={16} color={COLORS.textTertiary} />
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            hitSlop={TOUCH.hitSlop}
+            onPress={handleDeleteFolder}
+            style={[styles.circleBtn, styles.deleteCircleBtn]}
+          >
+            <Trash2 size={16} color={COLORS.destructive} />
+          </TouchableOpacity>
+        </View>
+      </View>
+
+      {/* Links List with Collapsible Shrinking Header */}
+      <Animated.FlatList
+        data={filteredLinks}
+        keyExtractor={(item) => item.id}
+        onScroll={Animated.event(
+          [{ nativeEvent: { contentOffset: { y: scrollY } } }],
+          { useNativeDriver: true }
+        )}
+        scrollEventThrottle={16}
+        keyboardShouldPersistTaps="handled"
+        ListHeaderComponent={
+          <View style={styles.listHeaderContainer}>
+            {/* Animated Hero Folder Header */}
+            <Animated.View
+              style={[
+                styles.heroAnimatedWrap,
+                {
+                  opacity: heroOpacity,
+                  transform: [
+                    { scale: heroScale },
+                    { translateY: heroTranslateY },
                   ],
-                ]}
-              >
-                <View style={[styles.subdomainRowIconBox, { backgroundColor: `${accent}18` }]}>
-                  <FolderOpen size={16} color={accent} />
+                },
+              ]}
+            >
+              <DynamicGlow color={accent} intensity={0.25} style={styles.glowWrap}>
+                <View style={styles.folderHero}>
+                  <View style={styles.heroRow}>
+                    <View style={styles.iconContainer}>
+                      {folder.icon_url ? (
+                        <Image
+                          source={{ uri: folder.icon_url }}
+                          style={styles.iconImage}
+                          resizeMode="contain"
+                        />
+                      ) : (
+                        <View style={[styles.fallbackIcon, { backgroundColor: `${accent}25` }]}>
+                          <Globe size={24} color={accent} />
+                        </View>
+                      )}
+                    </View>
+
+                    <View style={styles.heroTextContainer}>
+                      <Text numberOfLines={1} style={styles.heroTitle}>
+                        {folder.display_name}
+                      </Text>
+                      <Text numberOfLines={1} style={styles.heroDomain}>
+                        {folder.domain} • {folderLinks.length} bağlantı
+                      </Text>
+                    </View>
+                  </View>
                 </View>
-                <View style={styles.subdomainRowInfo}>
-                  <Text
-                    numberOfLines={1}
-                    style={[
-                      styles.subdomainRowName,
-                      selectedSubdomain === null && { color: accent, fontWeight: '700' },
-                    ]}
+              </DynamicGlow>
+            </Animated.View>
+
+            {/* Subdomain Alt Klasörler Bölümü */}
+            {subdomainFolders.length >= 2 ? (
+              <View style={styles.subdomainSection}>
+                <View style={styles.subdomainHeaderRow}>
+                  <TouchableOpacity
+                    activeOpacity={TOUCH.activeOpacity}
+                    onPress={() => setIsSubdomainExpanded((prev) => !prev)}
+                    style={styles.subdomainTitleRow}
                   >
-                    Tümünü Göster
-                  </Text>
-                  <Text style={styles.subdomainRowDesc}>Tüm alt klasörlerdeki bağlantılar</Text>
+                    <FolderTree size={15} color={accent} />
+                    <Text style={styles.subdomainSectionTitle}>
+                      Alt Klasörler ({subdomainFolders.length})
+                    </Text>
+                    {isSubdomainExpanded ? (
+                      <ChevronUp size={15} color={COLORS.textTertiary} />
+                    ) : (
+                      <ChevronDown size={15} color={COLORS.textTertiary} />
+                    )}
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    activeOpacity={TOUCH.activeOpacity}
+                    onPress={() => setIsSubdomainExpanded((prev) => !prev)}
+                    style={styles.collapseToggleBtn}
+                  >
+                    <Text style={styles.collapseToggleText}>
+                      {isSubdomainExpanded ? 'Gizle' : 'Göster'}
+                    </Text>
+                  </TouchableOpacity>
                 </View>
-                <View
-                  style={[
-                    styles.subdomainRowCountBadge,
-                    selectedSubdomain === null
-                      ? { backgroundColor: accent }
-                      : { backgroundColor: COLORS.surfaceElevated },
-                  ]}
+
+                {/* Active subdomain breadcrumb badge */}
+                {selectedSubdomain ? (
+                  <View style={styles.activeSubdomainBar}>
+                    <View style={styles.activeSubdomainLeft}>
+                      <Text style={styles.activeSubdomainLabel}>Filtrelenen:</Text>
+                      <Text numberOfLines={1} style={[styles.activeSubdomainValue, { color: accent }]}>
+                        {selectedSubdomain}
+                      </Text>
+                    </View>
+                    <TouchableOpacity
+                      hitSlop={TOUCH.hitSlop}
+                      onPress={() => setSelectedSubdomain(null)}
+                      style={styles.activeSubdomainClose}
+                    >
+                      <X size={12} color="#ffffff" />
+                    </TouchableOpacity>
+                  </View>
+                ) : null}
+
+                {/* Vertical list of subdomains when expanded */}
+                {isSubdomainExpanded ? (
+                  <View style={styles.subdomainVerticalList}>
+                    {/* Tümü (Klasörün tamamı) */}
+                    <TouchableOpacity
+                      activeOpacity={TOUCH.activeOpacity}
+                      onPress={() => {
+                        setSelectedSubdomain(null);
+                        setIsSubdomainExpanded(false);
+                      }}
+                      style={[
+                        styles.subdomainRow,
+                        selectedSubdomain === null && [
+                          styles.subdomainRowActive,
+                          { borderColor: accent },
+                        ],
+                      ]}
+                    >
+                      <View style={[styles.subdomainRowIconBox, { backgroundColor: `${accent}18` }]}>
+                        <FolderOpen size={16} color={accent} />
+                      </View>
+                      <View style={styles.subdomainRowInfo}>
+                        <Text
+                          numberOfLines={1}
+                          style={[
+                            styles.subdomainRowName,
+                            selectedSubdomain === null && { color: accent, fontWeight: '700' },
+                          ]}
+                        >
+                          Tümünü Göster
+                        </Text>
+                        <Text style={styles.subdomainRowDesc}>Tüm alt klasörlerdeki bağlantılar</Text>
+                      </View>
+                      <View
+                        style={[
+                          styles.subdomainRowCountBadge,
+                          selectedSubdomain === null
+                            ? { backgroundColor: accent }
+                            : { backgroundColor: COLORS.surfaceElevated },
+                        ]}
+                      >
+                        <Text
+                          style={[
+                            styles.subdomainRowCountText,
+                            selectedSubdomain === null && { color: '#ffffff' },
+                          ]}
+                        >
+                          {folderLinks.length}
+                        </Text>
+                      </View>
+                      {selectedSubdomain === null ? (
+                        <View style={styles.subdomainRowCheck}>
+                          <Check size={16} color={accent} />
+                        </View>
+                      ) : null}
+                    </TouchableOpacity>
+
+                    {/* Her Subdomain İçin Ayrı Klasör Satırı */}
+                    {subdomainFolders.map((sub) => {
+                      const isSelected = selectedSubdomain === sub.domain;
+                      return (
+                        <TouchableOpacity
+                          key={sub.domain}
+                          activeOpacity={TOUCH.activeOpacity}
+                          onPress={() => {
+                            setSelectedSubdomain(isSelected ? null : sub.domain);
+                            setIsSubdomainExpanded(false);
+                          }}
+                          style={[
+                            styles.subdomainRow,
+                            isSelected && [
+                              styles.subdomainRowActive,
+                              { borderColor: accent },
+                            ],
+                          ]}
+                        >
+                          <View style={[styles.subdomainRowIconBox, { backgroundColor: `${accent}18` }]}>
+                            <Folder size={16} color={accent} />
+                          </View>
+                          <View style={styles.subdomainRowInfo}>
+                            <Text
+                              numberOfLines={1}
+                              style={[
+                                styles.subdomainRowName,
+                                isSelected && { color: accent, fontWeight: '700' },
+                              ]}
+                            >
+                              {sub.domain}
+                            </Text>
+                            <Text style={styles.subdomainRowDesc}>{sub.count} bağlantı</Text>
+                          </View>
+                          <View
+                            style={[
+                              styles.subdomainRowCountBadge,
+                              isSelected
+                                ? { backgroundColor: accent }
+                                : { backgroundColor: COLORS.surfaceElevated },
+                            ]}
+                          >
+                            <Text
+                              style={[
+                                styles.subdomainRowCountText,
+                                isSelected && { color: '#ffffff' },
+                              ]}
+                            >
+                              {sub.count}
+                            </Text>
+                          </View>
+                          {isSelected ? (
+                            <View style={styles.subdomainRowCheck}>
+                              <Check size={16} color={accent} />
+                            </View>
+                          ) : null}
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
+                ) : null}
+              </View>
+            ) : null}
+
+            {/* Search & Filter Bar */}
+            <View style={styles.filterSection}>
+              <SearchBar
+                value={search}
+                onChangeText={setSearch}
+                placeholder="Bu klasör içinde ara..."
+                style={styles.searchBar}
+              />
+
+              <View style={styles.filterRow}>
+                <TouchableOpacity
+                  activeOpacity={TOUCH.activeOpacity}
+                  onPress={() => setFilter('all')}
+                  style={[styles.filterChip, filter === 'all' && styles.filterChipActive]}
                 >
                   <Text
                     style={[
-                      styles.subdomainRowCountText,
-                      selectedSubdomain === null && { color: '#ffffff' },
+                      styles.filterChipText,
+                      filter === 'all' && styles.filterChipTextActive,
                     ]}
                   >
-                    {folderLinks.length}
+                    Tümü ({folderLinks.length})
                   </Text>
-                </View>
-                {selectedSubdomain === null ? (
-                  <View style={styles.subdomainRowCheck}>
-                    <Check size={16} color={accent} />
-                  </View>
-                ) : null}
-              </TouchableOpacity>
+                </TouchableOpacity>
 
-              {/* Her Subdomain İçin Ayrı Klasör Satırı (youtube.com, m.youtube.com vb.) */}
-              {subdomainFolders.map((sub) => {
-                const isSelected = selectedSubdomain === sub.domain;
-                return (
-                  <TouchableOpacity
-                    key={sub.domain}
-                    activeOpacity={TOUCH.activeOpacity}
-                    onPress={() => {
-                      setSelectedSubdomain(isSelected ? null : sub.domain);
-                      setIsSubdomainExpanded(false);
-                    }}
+                <TouchableOpacity
+                  activeOpacity={TOUCH.activeOpacity}
+                  onPress={() => setFilter('unread')}
+                  style={[styles.filterChip, filter === 'unread' && styles.filterChipActive]}
+                >
+                  <Text
                     style={[
-                      styles.subdomainRow,
-                      isSelected && [
-                        styles.subdomainRowActive,
-                        { borderColor: accent },
-                      ],
+                      styles.filterChipText,
+                      filter === 'unread' && styles.filterChipTextActive,
                     ]}
                   >
-                    <View style={[styles.subdomainRowIconBox, { backgroundColor: `${accent}18` }]}>
-                      <Folder size={16} color={accent} />
-                    </View>
-                    <View style={styles.subdomainRowInfo}>
-                      <Text
-                        numberOfLines={1}
-                        style={[
-                          styles.subdomainRowName,
-                          isSelected && { color: accent, fontWeight: '700' },
-                        ]}
-                      >
-                        {sub.domain}
-                      </Text>
-                      <Text style={styles.subdomainRowDesc}>{sub.count} bağlantı</Text>
-                    </View>
-                    <View
-                      style={[
-                        styles.subdomainRowCountBadge,
-                        isSelected
-                          ? { backgroundColor: accent }
-                          : { backgroundColor: COLORS.surfaceElevated },
-                      ]}
-                    >
-                      <Text
-                        style={[
-                          styles.subdomainRowCountText,
-                          isSelected && { color: '#ffffff' },
-                        ]}
-                      >
-                        {sub.count}
-                      </Text>
-                    </View>
-                    {isSelected ? (
-                      <View style={styles.subdomainRowCheck}>
-                        <Check size={16} color={accent} />
-                      </View>
-                    ) : null}
-                  </TouchableOpacity>
-                );
-              })}
+                    Okunmamış ({folderLinks.filter((l) => l.is_read === 0).length})
+                  </Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  activeOpacity={TOUCH.activeOpacity}
+                  onPress={() => setFilter('favorites')}
+                  style={[styles.filterChip, filter === 'favorites' && styles.filterChipActive]}
+                >
+                  <Text
+                    style={[
+                      styles.filterChipText,
+                      filter === 'favorites' && styles.filterChipTextActive,
+                    ]}
+                  >
+                    Favoriler ({folderLinks.filter((l) => l.is_favorite === 1).length})
+                  </Text>
+                </TouchableOpacity>
+              </View>
+
+              {/* Dynamic Tag Chips within folder */}
+              <TagFilterBar
+                tags={folderTags}
+                selectedTag={selectedTag}
+                onSelectTag={setSelectedTag}
+              />
             </View>
-          ) : null}
-        </View>
-      ) : null}
-
-      {/* Search & Filter Bar */}
-      <View style={styles.filterSection}>
-        <SearchBar
-          value={search}
-          onChangeText={setSearch}
-          placeholder="Bu klasör içinde ara..."
-          style={styles.searchBar}
-        />
-
-        <View style={styles.filterRow}>
-          <TouchableOpacity
-            activeOpacity={TOUCH.activeOpacity}
-            onPress={() => setFilter('all')}
-            style={[styles.filterChip, filter === 'all' && styles.filterChipActive]}
-          >
-            <Text
-              style={[
-                styles.filterChipText,
-                filter === 'all' && styles.filterChipTextActive,
-              ]}
-            >
-              Tümü ({folderLinks.length})
-            </Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            activeOpacity={TOUCH.activeOpacity}
-            onPress={() => setFilter('unread')}
-            style={[styles.filterChip, filter === 'unread' && styles.filterChipActive]}
-          >
-            <Text
-              style={[
-                styles.filterChipText,
-                filter === 'unread' && styles.filterChipTextActive,
-              ]}
-            >
-              Okunmamış ({folderLinks.filter((l) => l.is_read === 0).length})
-            </Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            activeOpacity={TOUCH.activeOpacity}
-            onPress={() => setFilter('favorites')}
-            style={[styles.filterChip, filter === 'favorites' && styles.filterChipActive]}
-          >
-            <Text
-              style={[
-                styles.filterChipText,
-                filter === 'favorites' && styles.filterChipTextActive,
-              ]}
-            >
-              Favoriler ({folderLinks.filter((l) => l.is_favorite === 1).length})
-            </Text>
-          </TouchableOpacity>
-        </View>
-
-        {/* Dynamic Tag Chips within folder */}
-        <TagFilterBar
-          tags={folderTags}
-          selectedTag={selectedTag}
-          onSelectTag={setSelectedTag}
-        />
-      </View>
-
-      {/* Links List */}
-      <FlatList
-        data={filteredLinks}
-        keyExtractor={(item) => item.id}
+          </View>
+        }
         renderItem={({ item }) => (
-          <LinkCard
-            link={item}
-            showDomainBadge={false}
-            subdomainText={extractSubdomain(item.clean_url || item.original_url)}
-            isSelectionMode={isSelectionMode}
-            isSelected={selectedIds.includes(item.id)}
-            onToggleSelect={handleToggleSelect}
-            onLongPress={() => handleStartSelection(item.id)}
-            onTagPress={(tag) => setSelectedTag(tag)}
-          />
+          <View style={styles.linkCardWrapper}>
+            <LinkCard
+              link={item}
+              showDomainBadge={false}
+              subdomainText={extractSubdomain(item.clean_url || item.original_url)}
+              isSelectionMode={isSelectionMode}
+              isSelected={selectedIds.includes(item.id)}
+              onToggleSelect={handleToggleSelect}
+              onLongPress={() => handleStartSelection(item.id)}
+              onTagPress={(tag) => setSelectedTag(tag)}
+            />
+          </View>
         )}
         contentContainerStyle={[
           styles.listContent,
           isSelectionMode && { paddingBottom: 150 },
         ]}
         ListEmptyComponent={
-          <EmptyState
-            icon={Layers}
-            title={search || selectedTag ? 'Sonuç Bulunamadı' : 'Klasör Boş'}
-            description={
-              search || selectedTag
-                ? `Seçilen kriterlerle eşleşen bir kayıt bulunamadı.`
-                : `Bu domaine (${folder.domain}) ait henüz kaydedilmiş bir link yok.`
-            }
-            actionLabel="Link Ekle"
-            onAction={() => router.push('/modal/add-link')}
-          />
+          <View style={styles.emptyWrapper}>
+            <EmptyState
+              icon={Layers}
+              title={search || selectedTag ? 'Sonuç Bulunamadı' : 'Klasör Boş'}
+              description={
+                search || selectedTag
+                  ? `Seçilen kriterlerle eşleşen bir kayıt bulunamadı.`
+                  : `Bu domaine (${folder.domain}) ait henüz kaydedilmiş bir link yok.`
+              }
+              actionLabel="Link Ekle"
+              onAction={() => router.push('/modal/add-link')}
+            />
+          </View>
         }
       />
 
@@ -603,15 +688,50 @@ const styles = StyleSheet.create({
   glowWrap: {
     borderBottomWidth: 1,
     borderBottomColor: 'rgba(255, 255, 255, 0.08)',
-    paddingBottom: 16,
+    paddingTop: 10,
+    paddingBottom: 14,
+  },
+  heroAnimatedWrap: {
+    width: '100%',
+  },
+  listHeaderContainer: {
+    paddingBottom: 4,
   },
   topBar: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 16,
-    paddingTop: 12,
-    marginBottom: 12,
+    paddingVertical: 10,
+    backgroundColor: COLORS.background,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255, 255, 255, 0.08)',
+    zIndex: 10,
+  },
+  topBarCenter: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginHorizontal: 10,
+  },
+  topBarFavicon: {
+    width: 20,
+    height: 20,
+    borderRadius: 5,
+  },
+  topBarFaviconFallback: {
+    width: 20,
+    height: 20,
+    borderRadius: 5,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  topBarTitle: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#ffffff',
+    flexShrink: 1,
   },
   circleBtn: {
     width: 38,
@@ -648,8 +768,8 @@ const styles = StyleSheet.create({
     gap: 14,
   },
   iconContainer: {
-    width: 52,
-    height: 52,
+    width: 46,
+    height: 46,
     borderRadius: RADIUS.card,
     backgroundColor: COLORS.surfaceElevated,
     borderWidth: 1,
@@ -659,8 +779,8 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
   },
   iconImage: {
-    width: 32,
-    height: 32,
+    width: 28,
+    height: 28,
     borderRadius: 6,
   },
   fallbackIcon: {
@@ -674,8 +794,8 @@ const styles = StyleSheet.create({
   },
   heroTitle: {
     ...TYPOGRAPHY.screenTitle,
-    fontSize: 22,
-    marginBottom: 3,
+    fontSize: 20,
+    marginBottom: 2,
   },
   heroDomain: {
     ...TYPOGRAPHY.metadata,
@@ -847,9 +967,14 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   listContent: {
-    paddingHorizontal: 16,
-    paddingTop: 8,
     paddingBottom: 110,
+  },
+  linkCardWrapper: {
+    paddingHorizontal: 16,
+  },
+  emptyWrapper: {
+    paddingHorizontal: 16,
+    paddingTop: 16,
   },
   errorContainer: {
     flex: 1,
