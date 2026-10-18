@@ -1,9 +1,10 @@
 import React, { useEffect } from 'react';
-import { View, StyleSheet } from 'react-native';
-import { Stack } from 'expo-router';
+import { View, StyleSheet, BackHandler } from 'react-native';
+import { Stack, router } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { NotificationToast } from '../components/NotificationToast';
 import { useLinksStore } from '../stores/useLinksStore';
+import { useSettingsStore } from '../stores/useSettingsStore';
 import { setupIntentListener } from '../services/intentHandler';
 import { COLORS } from '../constants/theme';
 
@@ -16,8 +17,21 @@ export default function RootLayout() {
     initialize();
 
     // 2. Set up Android Share Intent & deep link listener
-    const removeListener = setupIntentListener((url) => {
-      addLink(url);
+    const removeListener = setupIntentListener(async (url) => {
+      const shareMode = useSettingsStore.getState().shareMode;
+      if (shareMode === 'silent') {
+        // Mode 1: Completely invisible silent save and exit
+        await addLink(url);
+        setTimeout(() => {
+          BackHandler.exitApp();
+        }, 120);
+      } else {
+        // Mode 2: Interactive save - open modal prefilled with url
+        router.push({
+          pathname: '/modal/add-link',
+          params: { prefilledUrl: url },
+        });
+      }
     });
 
     return () => {

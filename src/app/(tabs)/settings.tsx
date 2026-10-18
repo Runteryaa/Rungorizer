@@ -21,7 +21,8 @@ import {
   RefreshCw,
   Info,
   ShieldCheck,
-  CheckCircle2,
+  Zap,
+  Edit3,
 } from 'lucide-react-native';
 import { GlassCard } from '../../components/GlassCard';
 import { COLORS, RADIUS, TOUCH, TYPOGRAPHY } from '../../constants/theme';
@@ -33,6 +34,8 @@ export default function SettingsScreen() {
   const setOpenInAppBrowser = useSettingsStore((state) => state.setOpenInAppBrowser);
   const autoDetect = useSettingsStore((state) => state.autoDetectClipboard);
   const setAutoDetect = useSettingsStore((state) => state.setAutoDetectClipboard);
+  const shareMode = useSettingsStore((state) => state.shareMode);
+  const setShareMode = useSettingsStore((state) => state.setShareMode);
 
   const exportBackup = useLinksStore((state) => state.exportBackup);
   const importBackup = useLinksStore((state) => state.importBackup);
@@ -78,11 +81,15 @@ export default function SettingsScreen() {
   const handleCheckUpdates = async () => {
     setIsCheckingUpdate(true);
     try {
-      if (__DEV__) {
-        Alert.alert('Geliştirici Modu', 'expo-updates geliştirici modunda simüle edilir; üretim yapılarında aktiftir.');
+      if (!Updates.isEnabled || __DEV__) {
+        Alert.alert(
+          'OTA Güncelleme Bilgisi',
+          `Uygulama geliştirme / Expo modunda çalışmaktadır. OTA güncellemeleri yalnızca yayınlanan APK derlemelerinde etkindir.\n\n• Bağlı Kanal: ${Updates.channel || 'production'}\n• Runtime Sürümü: ${Updates.runtimeVersion || '1.0.0'}`
+        );
         setIsCheckingUpdate(false);
         return;
       }
+
       const update = await Updates.checkForUpdateAsync();
       if (update.isAvailable) {
         await Updates.fetchUpdateAsync();
@@ -97,8 +104,12 @@ export default function SettingsScreen() {
       } else {
         showNotification('Uygulamanız güncel', 'En son sürümü kullanıyorsunuz', 'info');
       }
-    } catch {
-      showNotification('Güncelleme kontrolü yapılamadı', undefined, 'error');
+    } catch (err: any) {
+      console.warn('OTA error:', err);
+      Alert.alert(
+        'Güncelleme Kontrolü',
+        `EAS Update kontrol sonucu: ${err?.message || 'Güncelleme sunucusuna erişilemedi.'}\n\nKanal: ${Updates.channel || 'production'}`
+      );
     } finally {
       setIsCheckingUpdate(false);
     }
@@ -113,9 +124,49 @@ export default function SettingsScreen() {
         showsVerticalScrollIndicator={false}
       >
         <Text style={styles.screenTitle}>Ayarlar</Text>
-        <Text style={styles.subtitle}>Uygulama tercihleri, yedekleme ve sistem bilgileri</Text>
+        <Text style={styles.subtitle}>Uygulama tercihleri, paylaşım modu ve yedekleme</Text>
 
-        {/* 1. Tarayıcı ve Bağlantı Tercihleri */}
+        {/* 1. Android Paylaşım Davranışı */}
+        <Text style={styles.sectionHeader}>ANDROİD PAYLAŞIM DAVRANIŞI</Text>
+        <GlassCard style={styles.cardSection}>
+          <View style={styles.settingRow}>
+            <View
+              style={[
+                styles.settingIconBox,
+                {
+                  backgroundColor:
+                    shareMode === 'silent'
+                      ? 'rgba(59, 130, 246, 0.15)'
+                      : 'rgba(236, 72, 153, 0.15)',
+                },
+              ]}
+            >
+              {shareMode === 'silent' ? (
+                <Zap size={18} color={COLORS.defaultAccent} />
+              ) : (
+                <Edit3 size={18} color="#ec4899" />
+              )}
+            </View>
+            <View style={styles.settingTextContainer}>
+              <Text style={styles.settingTitle}>
+                {shareMode === 'silent' ? 'Sessiz Doğrudan Kayıt' : 'Özelleştirilebilir Kayıt'}
+              </Text>
+              <Text style={styles.settingDesc}>
+                {shareMode === 'silent'
+                  ? 'Paylaş menüsünden seçilince uygulama açılmadan arka planda sessizce kaydeder'
+                  : 'Paylaş menüsünden seçilince uygulama açılarak not ve etiket ekleme penceresi sunar'}
+              </Text>
+            </View>
+            <Switch
+              value={shareMode === 'interactive'}
+              onValueChange={(val) => setShareMode(val ? 'interactive' : 'silent')}
+              trackColor={{ false: COLORS.defaultAccent, true: '#ec4899' }}
+              thumbColor="#ffffff"
+            />
+          </View>
+        </GlassCard>
+
+        {/* 2. Tarayıcı ve Bağlantı Tercihleri */}
         <Text style={styles.sectionHeader}>BAĞLANTI VE TARAYICI</Text>
         <GlassCard style={styles.cardSection}>
           <View style={styles.settingRow}>
@@ -157,7 +208,7 @@ export default function SettingsScreen() {
           </View>
         </GlassCard>
 
-        {/* 2. Yedekleme ve Depolama (JSON) */}
+        {/* 3. Yedekleme ve Depolama (JSON) */}
         <Text style={styles.sectionHeader}>YEREL VERİ VE YEDEKLEME</Text>
         <GlassCard style={styles.cardSection}>
           <View style={styles.statsSummary}>
@@ -205,7 +256,7 @@ export default function SettingsScreen() {
           </TouchableOpacity>
         </GlassCard>
 
-        {/* 3. Canlı Güncellemeler (expo-updates) */}
+        {/* 4. Canlı Güncellemeler (expo-updates) */}
         <Text style={styles.sectionHeader}>GÜNCELLEMELER (EXPO-UPDATES)</Text>
         <GlassCard style={styles.cardSection}>
           <TouchableOpacity
@@ -222,27 +273,27 @@ export default function SettingsScreen() {
                 {isCheckingUpdate ? 'Kontrol Ediliyor...' : 'Güncellemeleri Denetle'}
               </Text>
               <Text style={styles.settingDesc}>
-                EAS Update üzerinden anlık kod güncellemelerini kontrol eder
+                Kanal: {Updates.channel || 'production'} • Sürüm: {Updates.runtimeVersion || '1.0.0'}
               </Text>
             </View>
           </TouchableOpacity>
         </GlassCard>
 
-        {/* 4. Gizlilik ve Mimari */}
+        {/* 5. Gizlilik ve Mimari */}
         <Text style={styles.sectionHeader}>MİMARİ VE GİZLİLİK</Text>
         <GlassCard style={styles.cardSection}>
           <View style={styles.infoRow}>
             <ShieldCheck size={20} color="#10b981" style={{ marginRight: 12 }} />
             <Text style={styles.infoText}>
               Rungorize %100 <Text style={{ fontWeight: '700', color: '#ffffff' }}>Local-First</Text> mimariye sahiptir.
-              Linkleriniz, başlıklarınız ve notlarınız hiçbir üçüncü taraf sunucuya gönderilmez; tamamen cihazınızdaki şifreli SQLite veritabanında saklanır.
+              Linkleriniz, başlıklarınız ve notlarınız hiçbir üçüncü taraf sunucuya gönderilmez; tamamen cihazınızdaki yerel SQLite veritabanında saklanır.
             </Text>
           </View>
         </GlassCard>
 
         <View style={styles.appFooter}>
           <Text style={styles.footerBrand}>Rungorize</Text>
-          <Text style={styles.footerVersion}>Sürüm 1.0.0 (Expo SDK 58)</Text>
+          <Text style={styles.footerVersion}>Sürüm 1.0.0 (Android Native / Expo 58)</Text>
         </View>
       </ScrollView>
     </SafeAreaView>

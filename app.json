@@ -47,7 +47,8 @@
       "expo-sqlite",
       "expo-web-browser",
       "expo-sharing",
-      "expo-updates"
+      "expo-updates",
+      "./plugins/withAndroidShareIntent.js"
     ],
     "extra": {
       "eas": {

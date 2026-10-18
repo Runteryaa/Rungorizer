@@ -11,7 +11,7 @@ import {
   TouchableWithoutFeedback,
   Keyboard,
 } from 'react-native';
-import { router } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import * as Clipboard from 'expo-clipboard';
 import { X, ClipboardPaste, Link2, Sparkles, Tag, FileText } from 'lucide-react-native';
 import { COLORS, RADIUS, SHADOWS, TOUCH, TYPOGRAPHY } from '../../constants/theme';
@@ -19,7 +19,8 @@ import { extractUrlFromText } from '../../services/urlCleaner';
 import { useLinksStore } from '../../stores/useLinksStore';
 
 export default function AddLinkModal() {
-  const [url, setUrl] = useState('');
+  const params = useLocalSearchParams<{ prefilledUrl?: string }>();
+  const [url, setUrl] = useState(params.prefilledUrl || '');
   const [notes, setNotes] = useState('');
   const [tags, setTags] = useState('');
   const [hasClipboardText, setHasClipboardText] = useState(false);
