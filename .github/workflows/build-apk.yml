@@ -1,93 +1,150 @@
-name: Build Android APK
+name: Build Android APK & Release
 
 on:
   push:
-    branches:
-      - main
-      - master
-    paths-ignore:
-      - '**.md'
-      - '.gitignore'
+    branches: [ main, master ]
   workflow_dispatch:
-    inputs:
-      build_type:
-        description: 'Derleme Tipi (Release / Debug)'
-        required: true
-        default: 'release'
-        type: choice
-        options:
-          - release
-          - debug
 
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+permissions:
+  contents: write
 
 jobs:
-  build-apk:
-    name: 🚀 Build APK
+  build:
+    name: Build Android APK (arm64-v8a)
     runs-on: ubuntu-latest
 
     steps:
-      - name: 📥 Checkout repository
+      - name: 🏗 Checkout Repository
         uses: actions/checkout@v4
 
-      - name: 🟢 Setup Node.js 20
+      - name: ⚙️ Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: 'npm'
 
-      - name: ☕ Setup Java JDK 17
+      - name: ☕ Setup Java JDK
         uses: actions/setup-java@v4
         with:
-          distribution: 'temurin'
+          distribution: 'zulu'
           java-version: '17'
 
-      - name: 📱 Setup Android SDK
-        uses: android-actions/setup-android@v3
+      - name: 💾 Cache Gradle Packages
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ runner.os }}-${{ hashFiles('package-lock.json', 'app.json') }}
+          restore-keys: |
+            gradle-${{ runner.os }}-
+
+      - name: 💾 Cache Android NDK
+        uses: actions/cache@v4
+        id: cache-ndk
+        with:
+          path: /usr/local/lib/android/sdk/ndk
+          key: android-ndk-v27-${{ runner.os }}
+
+      - name: 🛠 Ensure Android NDK Side-by-Side (27.0 & 27.1)
+        run: |
+          SDK_DIR="${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}"
+          for ndk_ver in "27.0.12077973" "27.1.12297006"; do
+            NDK_PATH="$SDK_DIR/ndk/$ndk_ver"
+            if [ -d "$NDK_PATH" ] && [ -f "$NDK_PATH/source.properties" ]; then
+              echo "✅ Android NDK $ndk_ver is already present."
+            else
+              echo "⚡ Installing Android NDK $ndk_ver with retries..."
+              SUCCESS=0
+              for attempt in {1..5}; do
+                echo "Attempt $attempt / 5 for NDK $ndk_ver..."
+                if echo "y" | $SDK_DIR/cmdline-tools/latest/bin/sdkmanager --install "ndk;$ndk_ver"; then
+                  if [ -d "$NDK_PATH" ] && [ -f "$NDK_PATH/source.properties" ]; then
+                    SUCCESS=1
+                    echo "✅ Successfully installed Android NDK $ndk_ver."
+                    break
+                  fi
+                fi
+                echo "⚠️ Attempt $attempt failed. Waiting 10s before retry..."
+                sleep 10
+              done
+              if [ "$SUCCESS" -ne 1 ]; then
+                echo "❌ Failed to install Android NDK $ndk_ver after 5 attempts."
+                exit 1
+              fi
+            fi
+          done
+          echo "Side-by-side NDK directory contents:"
+          ls -la "$SDK_DIR/ndk"
 
       - name: 📦 Install Dependencies
-        run: |
-          npm install --legacy-peer-deps
+        run: npm install --legacy-peer-deps
 
-      - name: ⚙️ Expo Prebuild (Continuous Native Generation)
+      - name: 🚀 Publish EAS Update (OTA)
+        if: ${{ secrets.EXPO_TOKEN != '' }}
+        run: |
+          TARGET_BRANCH="${GITHUB_REF_NAME}"
+          if [ "$TARGET_BRANCH" = "beta" ]; then
+            UPDATE_BRANCH="beta"
+          else
+            UPDATE_BRANCH="production"
+          fi
+          echo "Publishing EAS Update for branch: $UPDATE_BRANCH"
+          npx eas-cli update --branch $UPDATE_BRANCH --platform android --environment production --non-interactive -m "Automated OTA update from CI ($UPDATE_BRANCH)"
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+          EAS_SKIP_AUTO_FINGERPRINT: 1
+
+      - name: 🛠 Prebuild Android
         run: |
           npx expo prebuild --platform android --clean
 
-      - name: 🔨 Build Android APK with Gradle
-        working-directory: android
+      - name: 🔧 Configure Build (Disable New Arch & Speed up with arm64-v8a only)
         run: |
-          chmod +x gradlew
-          if [ "${{ github.event.inputs.build_type }}" = "debug" ]; then
-            echo "Building Debug APK..."
-            ./gradlew assembleDebug --no-daemon --stacktrace
-            cp app/build/outputs/apk/debug/app-debug.apk ../rungorize-debug.apk
-            echo "OUTPUT_FILE=rungorize-debug.apk" >> $GITHUB_ENV
+          sed -i 's/newArchEnabled=true/newArchEnabled=false/' android/gradle.properties 2>/dev/null || true
+          grep -q 'newArchEnabled' android/gradle.properties || echo 'newArchEnabled=false' >> android/gradle.properties
+
+          sed -i 's/reactNativeArchitectures=.*/reactNativeArchitectures=arm64-v8a/' android/gradle.properties 2>/dev/null || true
+          grep -q 'reactNativeArchitectures' android/gradle.properties || echo 'reactNativeArchitectures=arm64-v8a' >> android/gradle.properties
+
+          # Remove any ndk.dir from local.properties so AGP can use side-by-side NDKs
+          sed -i '/ndk\.dir/d' android/local.properties 2>/dev/null || true
+
+          TARGET_BRANCH="${GITHUB_REF_NAME}"
+          if [ "$TARGET_BRANCH" = "beta" ]; then
+            UPDATE_CHANNEL="beta"
           else
-            echo "Building Release APK..."
-            # assembleRelease uses debug keystore by default in Expo CNG for standalone installability
-            ./gradlew assembleRelease --no-daemon --stacktrace
-            # Find and copy output APK
-            APK_PATH=$(find app/build/outputs/apk -name "*.apk" | head -n 1)
-            echo "Found APK at: $APK_PATH"
-            cp "$APK_PATH" ../rungorize.apk
-            echo "OUTPUT_FILE=rungorize.apk" >> $GITHUB_ENV
+            UPDATE_CHANNEL="production"
           fi
+          echo "Setting EXPO_UPDATES_CHANNEL to $UPDATE_CHANNEL"
+          sed -i "s|</application>|    <meta-data android:name=\"expo.modules.updates.EXPO_UPDATES_CHANNEL\" android:value=\"$UPDATE_CHANNEL\"/>\n  </application>|" android/app/src/main/AndroidManifest.xml
+
+          echo "--- Configured gradle.properties, local.properties & AndroidManifest.xml ---"
+          grep -E '(newArch|reactNativeArchitectures)' android/gradle.properties || true
+          cat android/local.properties 2>/dev/null || true
+          grep -i 'EXPO_UPDATES_CHANNEL' android/app/src/main/AndroidManifest.xml || true
+
+      - name: 🏗 Build APK
+        env:
+          GRADLE_OPTS: "-Dorg.gradle.jvmargs=-Xmx4g -XX:MaxMetaspaceSize=512m"
+        run: |
+          cd android
+          chmod +x gradlew
+          ./gradlew assembleRelease --no-daemon --build-cache --parallel -PreactNativeArchitectures=arm64-v8a -x lintVitalRelease
 
       - name: 📤 Upload APK Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: rungorize-android-apk
-          path: ${{ env.OUTPUT_FILE }}
-          retention-days: 30
+          name: Rungorize.apk
+          path: android/app/build/outputs/apk/release/*.apk
 
-      - name: 🏷️ Create GitHub Release (On Tag)
-        if: startsWith(github.ref, 'refs/tags/')
+      - name: 🏷 Create Release & Upload APK
         uses: softprops/action-gh-release@v2
         with:
-          files: ${{ env.OUTPUT_FILE }}
-          name: Rungorize ${{ github.ref_name }}
-          draft: false
-          prerelease: false
-          generate_release_notes: true
+          tag_name: ${{ github.ref_name == 'beta' && format('v1.0.{0}-beta', github.run_number) || format('v1.0.{0}', github.run_number) }}
+          name: ${{ github.ref_name == 'beta' && format('Rungorize Beta v1.0.{0}', github.run_number) || format('Rungorize v1.0.{0}', github.run_number) }}
+          body: |
+            Rungorize ${{ github.ref_name == 'beta' && 'Beta' || 'Production Release' }} (arm64-v8a)
+          files: android/app/build/outputs/apk/release/*.apk
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
