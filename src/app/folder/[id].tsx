@@ -23,6 +23,9 @@ import {
   Folder,
   FolderOpen,
   FolderTree,
+  ChevronDown,
+  ChevronUp,
+  Check,
   X,
 } from 'lucide-react-native';
 import { LinkCard } from '../../components/LinkCard';
@@ -53,6 +56,7 @@ export default function FolderDetailScreen() {
   const [filter, setFilter] = useState<'all' | 'unread' | 'favorites'>('all');
   const [selectedTag, setSelectedTag] = useState<string | null>(null);
   const [selectedSubdomain, setSelectedSubdomain] = useState<string | null>(null);
+  const [isSubdomainExpanded, setIsSubdomainExpanded] = useState(true);
 
   // Multi-selection state
   const [isSelectionMode, setIsSelectionMode] = useState(false);
@@ -304,136 +308,45 @@ export default function FolderDetailScreen() {
       </DynamicGlow>
 
       {/* Subdomain Alt Klasörler Bölümü */}
-      {subdomainFolders.length > 0 ? (
+      {subdomainFolders.length >= 2 ? (
         <View style={styles.subdomainSection}>
           <View style={styles.subdomainHeaderRow}>
-            <View style={styles.subdomainTitleRow}>
-              <FolderTree size={14} color={accent} />
-              <Text style={styles.subdomainSectionTitle}>ALT KLASÖRLER (SUBDOMAINS)</Text>
-            </View>
-            {selectedSubdomain ? (
-              <TouchableOpacity
-                hitSlop={TOUCH.hitSlop}
-                onPress={() => setSelectedSubdomain(null)}
-                style={styles.clearSubdomainBtn}
-              >
-                <Text style={styles.clearSubdomainText}>Tümünü Göster</Text>
-                <X size={12} color={COLORS.textSecondary} />
-              </TouchableOpacity>
-            ) : null}
-          </View>
-
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.subdomainScroll}
-          >
-            {/* Tümü (Klasörün tamamı) */}
             <TouchableOpacity
               activeOpacity={TOUCH.activeOpacity}
-              onPress={() => setSelectedSubdomain(null)}
-              style={[
-                styles.subdomainCard,
-                selectedSubdomain === null && [
-                  styles.subdomainCardActive,
-                  { borderColor: accent },
-                ],
-              ]}
+              onPress={() => setIsSubdomainExpanded((prev) => !prev)}
+              style={styles.subdomainTitleRow}
             >
-              <View style={styles.subdomainCardTop}>
-                <View style={[styles.subdomainIconBox, { backgroundColor: `${accent}22` }]}>
-                  <FolderOpen size={16} color={accent} />
-                </View>
-                <View
-                  style={[
-                    styles.subdomainCountBadge,
-                    selectedSubdomain === null
-                      ? { backgroundColor: accent }
-                      : { backgroundColor: COLORS.surfaceElevated },
-                  ]}
-                >
-                  <Text
-                    style={[
-                      styles.subdomainCountText,
-                      selectedSubdomain === null && { color: '#ffffff' },
-                    ]}
-                  >
-                    {folderLinks.length}
-                  </Text>
-                </View>
-              </View>
-              <Text
-                numberOfLines={1}
-                style={[
-                  styles.subdomainCardName,
-                  selectedSubdomain === null && styles.subdomainCardNameActive,
-                ]}
-              >
-                Tümü
+              <FolderTree size={15} color={accent} />
+              <Text style={styles.subdomainSectionTitle}>
+                Alt Klasörler ({subdomainFolders.length})
               </Text>
-              <Text style={styles.subdomainCardDesc}>Tüm alt klasörler</Text>
+              {isSubdomainExpanded ? (
+                <ChevronUp size={15} color={COLORS.textTertiary} />
+              ) : (
+                <ChevronDown size={15} color={COLORS.textTertiary} />
+              )}
             </TouchableOpacity>
 
-            {/* Her Subdomain İçin Ayrı Klasör Kartı (youtube.com, m.youtube.com, music.youtube.com vb.) */}
-            {subdomainFolders.map((sub) => {
-              const isSelected = selectedSubdomain === sub.domain;
-              return (
-                <TouchableOpacity
-                  key={sub.domain}
-                  activeOpacity={TOUCH.activeOpacity}
-                  onPress={() => setSelectedSubdomain(isSelected ? null : sub.domain)}
-                  style={[
-                    styles.subdomainCard,
-                    isSelected && [
-                      styles.subdomainCardActive,
-                      { borderColor: accent },
-                    ],
-                  ]}
-                >
-                  <View style={styles.subdomainCardTop}>
-                    <View style={[styles.subdomainIconBox, { backgroundColor: `${accent}22` }]}>
-                      <Folder size={16} color={accent} />
-                    </View>
-                    <View
-                      style={[
-                        styles.subdomainCountBadge,
-                        isSelected
-                          ? { backgroundColor: accent }
-                          : { backgroundColor: COLORS.surfaceElevated },
-                      ]}
-                    >
-                      <Text
-                        style={[
-                          styles.subdomainCountText,
-                          isSelected && { color: '#ffffff' },
-                        ]}
-                      >
-                        {sub.count}
-                      </Text>
-                    </View>
-                  </View>
-                  <Text
-                    numberOfLines={1}
-                    style={[
-                      styles.subdomainCardName,
-                      isSelected && styles.subdomainCardNameActive,
-                    ]}
-                  >
-                    {sub.domain}
-                  </Text>
-                  <Text style={styles.subdomainCardDesc}>{sub.count} bağlantı</Text>
-                </TouchableOpacity>
-              );
-            })}
-          </ScrollView>
+            <TouchableOpacity
+              activeOpacity={TOUCH.activeOpacity}
+              onPress={() => setIsSubdomainExpanded((prev) => !prev)}
+              style={styles.collapseToggleBtn}
+            >
+              <Text style={styles.collapseToggleText}>
+                {isSubdomainExpanded ? 'Gizle' : 'Göster'}
+              </Text>
+            </TouchableOpacity>
+          </View>
 
           {/* Active subdomain breadcrumb badge */}
           {selectedSubdomain ? (
             <View style={styles.activeSubdomainBar}>
-              <Text style={styles.activeSubdomainText}>
-                Filtrelenen Alt Klasör:{' '}
-                <Text style={{ color: accent, fontWeight: '700' }}>{selectedSubdomain}</Text>
-              </Text>
+              <View style={styles.activeSubdomainLeft}>
+                <Text style={styles.activeSubdomainLabel}>Filtrelenen:</Text>
+                <Text numberOfLines={1} style={[styles.activeSubdomainValue, { color: accent }]}>
+                  {selectedSubdomain}
+                </Text>
+              </View>
               <TouchableOpacity
                 hitSlop={TOUCH.hitSlop}
                 onPress={() => setSelectedSubdomain(null)}
@@ -441,6 +354,125 @@ export default function FolderDetailScreen() {
               >
                 <X size={12} color="#ffffff" />
               </TouchableOpacity>
+            </View>
+          ) : null}
+
+          {/* Vertical list of subdomains when expanded */}
+          {isSubdomainExpanded ? (
+            <View style={styles.subdomainVerticalList}>
+              {/* Tümü (Klasörün tamamı) */}
+              <TouchableOpacity
+                activeOpacity={TOUCH.activeOpacity}
+                onPress={() => {
+                  setSelectedSubdomain(null);
+                  setIsSubdomainExpanded(false);
+                }}
+                style={[
+                  styles.subdomainRow,
+                  selectedSubdomain === null && [
+                    styles.subdomainRowActive,
+                    { borderColor: accent },
+                  ],
+                ]}
+              >
+                <View style={[styles.subdomainRowIconBox, { backgroundColor: `${accent}18` }]}>
+                  <FolderOpen size={16} color={accent} />
+                </View>
+                <View style={styles.subdomainRowInfo}>
+                  <Text
+                    numberOfLines={1}
+                    style={[
+                      styles.subdomainRowName,
+                      selectedSubdomain === null && { color: accent, fontWeight: '700' },
+                    ]}
+                  >
+                    Tümünü Göster
+                  </Text>
+                  <Text style={styles.subdomainRowDesc}>Tüm alt klasörlerdeki bağlantılar</Text>
+                </View>
+                <View
+                  style={[
+                    styles.subdomainRowCountBadge,
+                    selectedSubdomain === null
+                      ? { backgroundColor: accent }
+                      : { backgroundColor: COLORS.surfaceElevated },
+                  ]}
+                >
+                  <Text
+                    style={[
+                      styles.subdomainRowCountText,
+                      selectedSubdomain === null && { color: '#ffffff' },
+                    ]}
+                  >
+                    {folderLinks.length}
+                  </Text>
+                </View>
+                {selectedSubdomain === null ? (
+                  <View style={styles.subdomainRowCheck}>
+                    <Check size={16} color={accent} />
+                  </View>
+                ) : null}
+              </TouchableOpacity>
+
+              {/* Her Subdomain İçin Ayrı Klasör Satırı (youtube.com, m.youtube.com vb.) */}
+              {subdomainFolders.map((sub) => {
+                const isSelected = selectedSubdomain === sub.domain;
+                return (
+                  <TouchableOpacity
+                    key={sub.domain}
+                    activeOpacity={TOUCH.activeOpacity}
+                    onPress={() => {
+                      setSelectedSubdomain(isSelected ? null : sub.domain);
+                      setIsSubdomainExpanded(false);
+                    }}
+                    style={[
+                      styles.subdomainRow,
+                      isSelected && [
+                        styles.subdomainRowActive,
+                        { borderColor: accent },
+                      ],
+                    ]}
+                  >
+                    <View style={[styles.subdomainRowIconBox, { backgroundColor: `${accent}18` }]}>
+                      <Folder size={16} color={accent} />
+                    </View>
+                    <View style={styles.subdomainRowInfo}>
+                      <Text
+                        numberOfLines={1}
+                        style={[
+                          styles.subdomainRowName,
+                          isSelected && { color: accent, fontWeight: '700' },
+                        ]}
+                      >
+                        {sub.domain}
+                      </Text>
+                      <Text style={styles.subdomainRowDesc}>{sub.count} bağlantı</Text>
+                    </View>
+                    <View
+                      style={[
+                        styles.subdomainRowCountBadge,
+                        isSelected
+                          ? { backgroundColor: accent }
+                          : { backgroundColor: COLORS.surfaceElevated },
+                      ]}
+                    >
+                      <Text
+                        style={[
+                          styles.subdomainRowCountText,
+                          isSelected && { color: '#ffffff' },
+                        ]}
+                      >
+                        {sub.count}
+                      </Text>
+                    </View>
+                    {isSelected ? (
+                      <View style={styles.subdomainRowCheck}>
+                        <Check size={16} color={accent} />
+                      </View>
+                    ) : null}
+                  </TouchableOpacity>
+                );
+              })}
             </View>
           ) : null}
         </View>
@@ -649,8 +681,8 @@ const styles = StyleSheet.create({
     ...TYPOGRAPHY.metadata,
   },
   subdomainSection: {
-    paddingTop: 14,
-    paddingBottom: 4,
+    paddingTop: 12,
+    paddingBottom: 8,
     borderBottomWidth: 1,
     borderBottomColor: 'rgba(255, 255, 255, 0.06)',
   },
@@ -659,84 +691,88 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 16,
-    marginBottom: 10,
+    paddingVertical: 4,
   },
   subdomainTitleRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
+    gap: 8,
+    flex: 1,
   },
   subdomainSectionTitle: {
     ...TYPOGRAPHY.badge,
-    color: COLORS.textTertiary,
+    color: COLORS.textSecondary,
+    fontWeight: '700',
   },
-  clearSubdomainBtn: {
+  collapseToggleBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
-    paddingHorizontal: 8,
-    paddingVertical: 3,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
     backgroundColor: COLORS.surfaceElevated,
-    borderRadius: 6,
+    borderRadius: RADIUS.sm,
+    borderWidth: 1,
+    borderColor: COLORS.border,
   },
-  clearSubdomainText: {
-    fontSize: 11,
+  collapseToggleText: {
+    fontSize: 12,
     fontWeight: '600',
     color: COLORS.textSecondary,
   },
-  subdomainScroll: {
+  subdomainVerticalList: {
     paddingHorizontal: 16,
-    gap: 10,
-    paddingBottom: 8,
+    paddingTop: 8,
+    gap: 8,
   },
-  subdomainCard: {
-    width: 140,
-    backgroundColor: COLORS.surface,
-    borderRadius: RADIUS.card,
-    borderWidth: 1,
-    borderColor: COLORS.border,
-    padding: 12,
-    ...SHADOWS.glass,
-  },
-  subdomainCardActive: {
-    backgroundColor: 'rgba(59, 130, 246, 0.12)',
-  },
-  subdomainCardTop: {
+  subdomainRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 8,
+    backgroundColor: COLORS.surface,
+    borderRadius: RADIUS.input,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    gap: 12,
+    ...SHADOWS.glass,
   },
-  subdomainIconBox: {
-    width: 30,
-    height: 30,
-    borderRadius: 10,
+  subdomainRowActive: {
+    backgroundColor: 'rgba(59, 130, 246, 0.10)',
+  },
+  subdomainRowIconBox: {
+    width: 32,
+    height: 32,
+    borderRadius: 8,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  subdomainCountBadge: {
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 8,
-    backgroundColor: COLORS.surfaceElevated,
+  subdomainRowInfo: {
+    flex: 1,
   },
-  subdomainCountText: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: COLORS.textTertiary,
-  },
-  subdomainCardName: {
+  subdomainRowName: {
     fontSize: 13,
-    fontWeight: '700',
+    fontWeight: '600',
     color: '#ffffff',
     marginBottom: 2,
   },
-  subdomainCardNameActive: {
-    fontWeight: '800',
-  },
-  subdomainCardDesc: {
+  subdomainRowDesc: {
     fontSize: 11,
     color: COLORS.textTertiary,
+  },
+  subdomainRowCountBadge: {
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+    borderRadius: 8,
+    backgroundColor: COLORS.surfaceElevated,
+  },
+  subdomainRowCountText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: COLORS.textTertiary,
+  },
+  subdomainRowCheck: {
+    marginLeft: 2,
   },
   activeSubdomainBar: {
     flexDirection: 'row',
@@ -745,21 +781,33 @@ const styles = StyleSheet.create({
     marginHorizontal: 16,
     marginTop: 6,
     marginBottom: 4,
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 8,
-    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: RADIUS.input,
+    backgroundColor: 'rgba(255, 255, 255, 0.04)',
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.08)',
   },
-  activeSubdomainText: {
+  activeSubdomainLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    flex: 1,
+    marginRight: 8,
+  },
+  activeSubdomainLabel: {
     fontSize: 12,
-    color: COLORS.textSecondary,
+    color: COLORS.textTertiary,
+  },
+  activeSubdomainValue: {
+    fontSize: 12,
+    fontWeight: '700',
+    flexShrink: 1,
   },
   activeSubdomainClose: {
-    width: 18,
-    height: 18,
-    borderRadius: 9,
+    width: 20,
+    height: 20,
+    borderRadius: 10,
     backgroundColor: COLORS.surfaceElevated,
     alignItems: 'center',
     justifyContent: 'center',
