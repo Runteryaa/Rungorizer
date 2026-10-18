@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   StyleSheet,
   Text,
@@ -49,13 +49,17 @@ export default function AddLinkModal() {
     return Object.keys(counts).slice(0, 5);
   }, [links]);
 
-  const handleAddTagSuggestion = (tag: string) => {
-    const current = tags
+  const currentTagsList = useMemo(() => {
+    return tags
       .split(',')
       .map((t) => t.trim())
       .filter(Boolean);
-    if (!current.includes(tag)) {
-      setTags([...current, tag].join(', '));
+  }, [tags]);
+
+  const handleAddTagSuggestion = (tag: string) => {
+    if (currentTagsList.length >= 5) return;
+    if (!currentTagsList.includes(tag)) {
+      setTags([...currentTagsList, tag].join(', '));
     }
   };
 
@@ -85,7 +89,8 @@ export default function AddLinkModal() {
     const tagsArray = tags
       .split(',')
       .map((t) => t.trim())
-      .filter(Boolean);
+      .filter(Boolean)
+      .slice(0, 5);
 
     const res = await addLink(url, notes.trim() || undefined, tagsArray);
     if (res.success) {
@@ -172,7 +177,7 @@ export default function AddLinkModal() {
             {/* Optional Tags Input */}
             <View style={styles.fieldGroup}>
               <View style={styles.labelRow}>
-                <Text style={styles.fieldLabel}>ETİKETLER (VİRGÜLLE AYIRIN)</Text>
+                <Text style={styles.fieldLabel}>ETİKETLER (MAKS. 5 ADET, VİRGÜLLE AYIRIN)</Text>
               </View>
               <View style={styles.inputContainer}>
                 <TextInput

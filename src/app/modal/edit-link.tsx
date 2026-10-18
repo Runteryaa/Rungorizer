@@ -89,13 +89,17 @@ export default function EditLinkModal() {
     );
   }
 
-  const handleAddTagSuggestion = (tag: string) => {
-    const current = tags
+  const currentTagsList = useMemo(() => {
+    return tags
       .split(',')
       .map((t) => t.trim())
       .filter(Boolean);
-    if (!current.includes(tag)) {
-      setTags([...current, tag].join(', '));
+  }, [tags]);
+
+  const handleAddTagSuggestion = (tag: string) => {
+    if (currentTagsList.length >= 5) return;
+    if (!currentTagsList.includes(tag)) {
+      setTags([...currentTagsList, tag].join(', '));
     }
   };
 
@@ -122,7 +126,8 @@ export default function EditLinkModal() {
     const tagsArray = tags
       .split(',')
       .map((t) => t.trim())
-      .filter(Boolean);
+      .filter(Boolean)
+      .slice(0, 5);
 
     await updateLink(link.id, {
       title: title.trim() || undefined,
@@ -235,7 +240,7 @@ export default function EditLinkModal() {
 
               {/* Tags Input */}
               <View style={styles.fieldGroup}>
-                <Text style={styles.fieldLabel}>ETİKETLER (VİRGÜLLE AYIRIN)</Text>
+                <Text style={styles.fieldLabel}>ETİKETLER (MAKS. 5 ADET, VİRGÜLLE AYIRIN)</Text>
                 <View style={styles.inputContainer}>
                   <TextInput
                     value={tags}

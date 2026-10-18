@@ -229,13 +229,14 @@ export const useLinksStore = create<LinksState>((set, get) => ({
   },
 
   updateLink: async (id: string, updates) => {
+    const safeTags = updates.tags ? updates.tags.slice(0, 5) : undefined;
     const dbPayload: Parameters<typeof dbUpdateLink>[1] = {
       title: updates.title,
       description: updates.description,
-      notes: updates.notes,
+      notes: updates.notes !== undefined ? (updates.notes.trim() || null) : undefined,
       folder_id: updates.folder_id,
       image_url: updates.image_url,
-      tags: updates.tags ? JSON.stringify(updates.tags) : undefined,
+      tags: safeTags ? JSON.stringify(safeTags) : undefined,
     };
     await dbUpdateLink(id, dbPayload);
     await get().refresh();

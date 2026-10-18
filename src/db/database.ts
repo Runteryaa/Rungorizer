@@ -146,6 +146,8 @@ export async function saveLinkFromMetadata(
   const now = Date.now();
 
   const folder = await upsertFolder(meta.domainInfo);
+  const safeTags = (tags || []).slice(0, 5);
+  const tagsJson = JSON.stringify(safeTags);
 
   // Check if link already exists by clean_url
   const existing = await db.getFirstAsync<LinkRecord>(
@@ -154,15 +156,19 @@ export async function saveLinkFromMetadata(
   );
 
   if (existing) {
-    // Deduplication rule: Bump updated_at and update title/description if improved
+    // Deduplication rule: Bump updated_at and update title/description/notes/tags if provided
+    const newTags = safeTags.length > 0 ? tagsJson : existing.tags;
+    const cleanNotes = notes && notes.trim() ? notes.trim() : existing.notes;
     await db.runAsync(
       `UPDATE links 
        SET updated_at = ?, 
            title = COALESCE(?, title), 
            description = COALESCE(?, description),
-           image_url = COALESCE(?, image_url)
+           image_url = COALESCE(?, image_url),
+           notes = ?,
+           tags = ?
        WHERE id = ?`,
-      [now, meta.title, meta.description, meta.imageUrl, existing.id]
+      [now, meta.title, meta.description, meta.imageUrl, cleanNotes, newTags, existing.id]
     );
 
     // Update folder updated_at as well
@@ -180,7 +186,6 @@ export async function saveLinkFromMetadata(
   }
 
   const id = generateId();
-  const tagsJson = JSON.stringify(tags || []);
 
   await db.runAsync(
     `INSERT INTO links (
@@ -196,7 +201,7 @@ export async function saveLinkFromMetadata(
       meta.description,
       meta.imageUrl,
       meta.faviconUrl,
-      notes || null,
+      notes && notes.trim() ? notes.trim() : null,
       tagsJson,
       now,
       now,
@@ -327,8 +332,17 @@ export async function updateLink(
     values.push(updates.notes);
   }
   if (updates.tags !== undefined) {
+    let safeTagsJson = '[]';
+    try {
+      const parsed = typeof updates.tags === 'string' ? JSON.parse(updates.tags) : updates.tags;
+      if (Array.isArray(parsed)) {
+        safeTagsJson = JSON.stringify(parsed.slice(0, 5));
+      }
+    } catch {
+      safeTagsJson = '[]';
+    }
     fields.push('tags = ?');
-    values.push(updates.tags);
+    values.push(safeTagsJson);
   }
   if (updates.folder_id !== undefined) {
     fields.push('folder_id = ?');

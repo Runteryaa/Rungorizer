@@ -59,12 +59,26 @@ export function LinkCard({
   const accent = link.folder_color || COLORS.defaultAccent;
 
   const tagsList = useMemo(() => {
+    if (!link.tags) return [];
     try {
-      const parsed = JSON.parse(link.tags || '[]');
-      return Array.isArray(parsed) ? parsed : [];
+      const parsed = typeof link.tags === 'string' ? JSON.parse(link.tags) : link.tags;
+      if (Array.isArray(parsed)) {
+        return parsed
+          .map((t) => (typeof t === 'string' ? t.trim() : ''))
+          .filter(Boolean)
+          .slice(0, 5);
+      }
     } catch {
-      return [];
+      // Fallback if stored as comma-separated string
+      if (typeof link.tags === 'string') {
+        return link.tags
+          .split(',')
+          .map((t) => t.trim())
+          .filter(Boolean)
+          .slice(0, 5);
+      }
     }
+    return [];
   }, [link.tags]);
 
   const handlePress = async () => {
@@ -151,7 +165,7 @@ export function LinkCard({
         ) : null}
       </View>
 
-      {/* Main Row: Checkbox + Title + Thumbnail */}
+      {/* Main Row: Checkbox + Thumbnail (on Left) + Title */}
       <View style={styles.headerRow}>
         {isSelectionMode ? (
           <TouchableOpacity
@@ -167,15 +181,7 @@ export function LinkCard({
           </TouchableOpacity>
         ) : null}
 
-        <View style={styles.titleContainer}>
-          <Text
-            numberOfLines={2}
-            style={[styles.title, isRead && styles.titleRead]}
-          >
-            {link.title || link.clean_url}
-          </Text>
-        </View>
-
+        {/* Thumbnail on Left */}
         {link.image_url ? (
           <View style={styles.thumbContainer}>
             <Image
@@ -185,6 +191,15 @@ export function LinkCard({
             />
           </View>
         ) : null}
+
+        <View style={styles.titleContainer}>
+          <Text
+            numberOfLines={2}
+            style={[styles.title, isRead && styles.titleRead]}
+          >
+            {link.title || link.clean_url}
+          </Text>
+        </View>
       </View>
 
       {/* Full-Width Body: Description */}
@@ -195,26 +210,29 @@ export function LinkCard({
       ) : null}
 
       {/* Full-Width Body: Personal Notes */}
-      {link.notes ? (
+      {link.notes && link.notes.trim() ? (
         <View style={styles.notesContainer}>
-          <FileText size={13} color="#f59e0b" style={{ marginTop: 2, marginRight: 6 }} />
-          <Text numberOfLines={3} style={styles.notesText}>
-            {link.notes}
+          <View style={styles.notesHeader}>
+            <FileText size={12} color="#f59e0b" />
+            <Text style={styles.notesLabel}>NOT</Text>
+          </View>
+          <Text style={styles.notesText}>
+            {link.notes.trim()}
           </Text>
         </View>
       ) : null}
 
-      {/* Full-Width Body: Tags */}
+      {/* Full-Width Body: Tags (Maks 5 Minik Kutucuk) */}
       {tagsList.length > 0 ? (
         <View style={styles.tagsRow}>
-          {tagsList.map((tag: string) => (
+          {tagsList.slice(0, 5).map((tag: string) => (
             <TouchableOpacity
               key={tag}
               activeOpacity={0.7}
               onPress={() => onTagPress?.(tag)}
               style={styles.tagPill}
             >
-              <Tag size={10} color={COLORS.textTertiary} />
+              <Tag size={10} color={COLORS.defaultAccent} />
               <Text style={styles.tagPillText}>#{tag}</Text>
             </TouchableOpacity>
           ))}
@@ -383,22 +401,30 @@ const styles = StyleSheet.create({
     marginTop: 8,
   },
   notesContainer: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    backgroundColor: 'rgba(245, 158, 11, 0.08)',
+    backgroundColor: 'rgba(245, 158, 11, 0.09)',
     borderWidth: 1,
-    borderColor: 'rgba(245, 158, 11, 0.22)',
+    borderColor: 'rgba(245, 158, 11, 0.28)',
     borderRadius: 10,
-    paddingHorizontal: 10,
-    paddingVertical: 7,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
     marginTop: 8,
   },
+  notesHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginBottom: 4,
+  },
+  notesLabel: {
+    fontSize: 10.5,
+    fontWeight: '800',
+    color: '#f59e0b',
+    letterSpacing: 0.5,
+  },
   notesText: {
-    flex: 1,
-    fontSize: 12,
-    color: '#e4e4e7',
-    lineHeight: 16,
-    fontStyle: 'italic',
+    fontSize: 12.5,
+    color: '#f4f4f5',
+    lineHeight: 18,
   },
   tagsRow: {
     flexDirection: 'row',
@@ -410,27 +436,27 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
-    backgroundColor: COLORS.surfaceElevated,
-    paddingHorizontal: 8,
-    paddingVertical: 3,
+    backgroundColor: 'rgba(255, 255, 255, 0.06)',
+    paddingHorizontal: 9,
+    paddingVertical: 4,
     borderRadius: 6,
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.06)',
+    borderColor: 'rgba(255, 255, 255, 0.12)',
   },
   tagPillText: {
-    fontSize: 11,
+    fontSize: 11.5,
     fontWeight: '600',
-    color: COLORS.textSecondary,
+    color: '#e4e4e7',
   },
   thumbContainer: {
-    width: 68,
-    height: 68,
+    width: 64,
+    height: 64,
     borderRadius: RADIUS.input,
     overflow: 'hidden',
     backgroundColor: COLORS.surfaceElevated,
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.08)',
-    marginLeft: 4,
+    marginRight: 6,
   },
   thumbnail: {
     width: '100%',
