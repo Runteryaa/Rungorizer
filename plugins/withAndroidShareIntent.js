@@ -347,7 +347,12 @@ class ShareHandlerActivity : Activity() {
       val conn = url.openConnection() as HttpURLConnection
       conn.connectTimeout = 4000
       conn.readTimeout = 4000
-      conn.setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Mobile Safari/537.36 Rungorize/1.0")
+      val ua = if (urlStr.contains("twitter.com") || urlStr.contains("x.com")) {
+        "facebookexternalhit/1.1 (+http://www.facebook.com/externalhit_uatext.html)"
+      } else {
+        "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Mobile Safari/537.36 Rungorize/1.0"
+      }
+      conn.setRequestProperty("User-Agent", ua)
       conn.setRequestProperty("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
       conn.instanceFollowRedirects = true
 
@@ -366,10 +371,10 @@ class ShareHandlerActivity : Activity() {
 
         val html = htmlBuilder.toString()
         val title = extractMeta(html, "og:title") ?: extractMeta(html, "twitter:title") ?: extractHtmlTitle(html)
-        val description = extractMeta(html, "og:description") ?: extractMeta(html, "twitter:description")
+        val description = extractMeta(html, "og:description") ?: extractMeta(html, "twitter:description") ?: extractMeta(html, "description")
         val image = extractMeta(html, "og:image") ?: extractMeta(html, "twitter:image")
 
-        if (!title.isNullOrEmpty() || !image.isNullOrEmpty()) {
+        if (!title.isNullOrEmpty() || !description.isNullOrEmpty() || !image.isNullOrEmpty()) {
           val dbFile = getExpoDatabaseFile(context)
           val db = SQLiteDatabase.openDatabase(dbFile.path, null, SQLiteDatabase.OPEN_READWRITE)
           val cv = ContentValues()

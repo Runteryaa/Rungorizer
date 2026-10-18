@@ -84,11 +84,15 @@ export async function scrapeMetadata(rawUrl: string): Promise<ScrapedMetadata> {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 6000);
 
+    const isTwitter = sanitizedUrl.includes('twitter.com') || sanitizedUrl.includes('x.com');
+    const userAgent = isTwitter
+      ? 'facebookexternalhit/1.1 (+http://www.facebook.com/externalhit_uatext.html)'
+      : 'Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Mobile Safari/537.36 Rungorize/1.0';
+
     const response = await fetch(sanitizedUrl, {
       signal: controller.signal,
       headers: {
-        'User-Agent':
-          'Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Mobile Safari/537.36 Rungorize/1.0',
+        'User-Agent': userAgent,
         Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
         'Accept-Language': 'tr-TR,tr;q=0.9,en-US;q=0.8,en;q=0.7',
       },

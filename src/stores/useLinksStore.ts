@@ -13,6 +13,7 @@ import {
   bulkSetRead as dbBulkSetRead,
   bulkSetFavorite as dbBulkSetFavorite,
   deleteLink as dbDeleteLink,
+  updateLink as dbUpdateLink,
   updateFolder as dbUpdateFolder,
   deleteFolder as dbDeleteFolder,
   exportDatabaseBackup,
@@ -50,6 +51,17 @@ interface LinksState {
   bulkSetRead: (ids: string[], isRead: boolean) => Promise<void>;
   bulkSetFavorite: (ids: string[], isFavorite: boolean) => Promise<void>;
   deleteLink: (id: string) => Promise<void>;
+  updateLink: (
+    id: string,
+    updates: {
+      title?: string;
+      description?: string;
+      notes?: string;
+      tags?: string[];
+      folder_id?: string;
+      image_url?: string;
+    }
+  ) => Promise<void>;
   updateFolder: (id: string, updates: Partial<Pick<FolderRecord, 'display_name' | 'color' | 'is_pinned'>>) => Promise<void>;
   deleteFolder: (id: string) => Promise<void>;
   setSearchQuery: (query: string) => void;
@@ -214,6 +226,20 @@ export const useLinksStore = create<LinksState>((set, get) => ({
     await dbDeleteLink(id);
     await get().refresh();
     get().showNotification('Bağlantı silindi', undefined, 'info');
+  },
+
+  updateLink: async (id: string, updates) => {
+    const dbPayload: Parameters<typeof dbUpdateLink>[1] = {
+      title: updates.title,
+      description: updates.description,
+      notes: updates.notes,
+      folder_id: updates.folder_id,
+      image_url: updates.image_url,
+      tags: updates.tags ? JSON.stringify(updates.tags) : undefined,
+    };
+    await dbUpdateLink(id, dbPayload);
+    await get().refresh();
+    get().showNotification('Bağlantı güncellendi', undefined, 'success');
   },
 
   updateFolder: async (id: string, updates) => {

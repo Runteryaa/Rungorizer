@@ -304,7 +304,7 @@ export async function toggleRead(id: string): Promise<boolean> {
 
 export async function updateLink(
   id: string,
-  updates: Partial<Pick<LinkRecord, 'title' | 'description' | 'notes' | 'tags' | 'folder_id'>>
+  updates: Partial<Pick<LinkRecord, 'title' | 'description' | 'notes' | 'tags' | 'folder_id' | 'image_url'>>
 ): Promise<void> {
   const db = getDatabase();
   const fields: string[] = [];
@@ -317,6 +317,10 @@ export async function updateLink(
   if (updates.description !== undefined) {
     fields.push('description = ?');
     values.push(updates.description);
+  }
+  if (updates.image_url !== undefined) {
+    fields.push('image_url = ?');
+    values.push(updates.image_url);
   }
   if (updates.notes !== undefined) {
     fields.push('notes = ?');

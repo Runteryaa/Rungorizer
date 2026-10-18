@@ -10,6 +10,7 @@ import {
 import * as WebBrowser from 'expo-web-browser';
 import * as Clipboard from 'expo-clipboard';
 import * as Linking from 'expo-linking';
+import { router } from 'expo-router';
 import {
   Star,
   CheckCircle,
@@ -19,6 +20,8 @@ import {
   CheckSquare,
   Square,
   Tag,
+  Edit3,
+  FileText,
 } from 'lucide-react-native';
 import { LinkRecord } from '../db/schema';
 import { COLORS, RADIUS, SHADOWS, TOUCH, TYPOGRAPHY } from '../constants/theme';
@@ -125,8 +128,31 @@ export function LinkCard({
         isSelected && styles.cardSelected,
       ]}
     >
-      <View style={styles.mainRow}>
-        {/* Selection Checkbox on Left */}
+      {/* Top domain badge & unread dot */}
+      <View style={styles.topMetaRow}>
+        {showDomainBadge && link.folder_display_name ? (
+          <View style={styles.domainBadgeRow}>
+            {link.favicon_url ? (
+              <Image
+                source={{ uri: link.favicon_url }}
+                style={styles.badgeFavicon}
+                resizeMode="contain"
+              />
+            ) : null}
+            <Text style={[styles.domainBadgeText, { color: accent }]}>
+              {link.folder_display_name}
+            </Text>
+          </View>
+        ) : <View />}
+
+        {/* Unread indicator dot */}
+        {!isRead ? (
+          <View style={styles.unreadDot} />
+        ) : null}
+      </View>
+
+      {/* Main Row: Checkbox + Title + Thumbnail */}
+      <View style={styles.headerRow}>
         {isSelectionMode ? (
           <TouchableOpacity
             hitSlop={TOUCH.hitSlop}
@@ -141,62 +167,15 @@ export function LinkCard({
           </TouchableOpacity>
         ) : null}
 
-        {/* Left/Main Content */}
-        <View style={styles.textContainer}>
-          <View style={styles.topMetaRow}>
-            {showDomainBadge && link.folder_display_name ? (
-              <View style={styles.domainBadgeRow}>
-                {link.favicon_url ? (
-                  <Image
-                    source={{ uri: link.favicon_url }}
-                    style={styles.badgeFavicon}
-                    resizeMode="contain"
-                  />
-                ) : null}
-                <Text style={[styles.domainBadgeText, { color: accent }]}>
-                  {link.folder_display_name}
-                </Text>
-              </View>
-            ) : null}
-
-            {/* Unread indicator dot */}
-            {!isRead ? (
-              <View style={styles.unreadDot} />
-            ) : null}
-          </View>
-
+        <View style={styles.titleContainer}>
           <Text
             numberOfLines={2}
             style={[styles.title, isRead && styles.titleRead]}
           >
             {link.title || link.clean_url}
           </Text>
-
-          {link.description ? (
-            <Text numberOfLines={2} style={styles.description}>
-              {link.description}
-            </Text>
-          ) : null}
-
-          {/* Tags list row */}
-          {tagsList.length > 0 ? (
-            <View style={styles.tagsRow}>
-              {tagsList.map((tag: string) => (
-                <TouchableOpacity
-                  key={tag}
-                  activeOpacity={0.7}
-                  onPress={() => onTagPress?.(tag)}
-                  style={styles.tagPill}
-                >
-                  <Tag size={10} color={COLORS.textTertiary} />
-                  <Text style={styles.tagPillText}>#{tag}</Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-          ) : null}
         </View>
 
-        {/* Right Thumbnail Image if available */}
         {link.image_url ? (
           <View style={styles.thumbContainer}>
             <Image
@@ -207,6 +186,40 @@ export function LinkCard({
           </View>
         ) : null}
       </View>
+
+      {/* Full-Width Body: Description */}
+      {link.description ? (
+        <Text numberOfLines={3} style={styles.description}>
+          {link.description}
+        </Text>
+      ) : null}
+
+      {/* Full-Width Body: Personal Notes */}
+      {link.notes ? (
+        <View style={styles.notesContainer}>
+          <FileText size={13} color="#f59e0b" style={{ marginTop: 2, marginRight: 6 }} />
+          <Text numberOfLines={3} style={styles.notesText}>
+            {link.notes}
+          </Text>
+        </View>
+      ) : null}
+
+      {/* Full-Width Body: Tags */}
+      {tagsList.length > 0 ? (
+        <View style={styles.tagsRow}>
+          {tagsList.map((tag: string) => (
+            <TouchableOpacity
+              key={tag}
+              activeOpacity={0.7}
+              onPress={() => onTagPress?.(tag)}
+              style={styles.tagPill}
+            >
+              <Tag size={10} color={COLORS.textTertiary} />
+              <Text style={styles.tagPillText}>#{tag}</Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+      ) : null}
 
       {/* Footer bar with metadata & actions */}
       <View style={styles.footerRow}>
@@ -239,6 +252,19 @@ export function LinkCard({
               style={styles.actionBtn}
             >
               <Share2 size={16} color={COLORS.textTertiary} />
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              hitSlop={TOUCH.hitSlop}
+              onPress={() =>
+                router.push({
+                  pathname: '/modal/edit-link',
+                  params: { id: link.id },
+                })
+              }
+              style={styles.actionBtn}
+            >
+              <Edit3 size={16} color={COLORS.textTertiary} />
             </TouchableOpacity>
 
             <TouchableOpacity
@@ -301,12 +327,12 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingRight: 4,
   },
-  mainRow: {
+  headerRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
+    gap: 10,
   },
-  textContainer: {
+  titleContainer: {
     flex: 1,
   },
   topMetaRow: {
@@ -345,7 +371,7 @@ const styles = StyleSheet.create({
   title: {
     ...TYPOGRAPHY.listItemTitle,
     lineHeight: 20,
-    marginBottom: 4,
+    marginBottom: 0,
   },
   titleRead: {
     color: '#d4d4d8',
@@ -354,13 +380,31 @@ const styles = StyleSheet.create({
     fontSize: 12.5,
     color: COLORS.textSecondary,
     lineHeight: 18,
-    marginTop: 2,
+    marginTop: 8,
+  },
+  notesContainer: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    backgroundColor: 'rgba(245, 158, 11, 0.08)',
+    borderWidth: 1,
+    borderColor: 'rgba(245, 158, 11, 0.22)',
+    borderRadius: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+    marginTop: 8,
+  },
+  notesText: {
+    flex: 1,
+    fontSize: 12,
+    color: '#e4e4e7',
+    lineHeight: 16,
+    fontStyle: 'italic',
   },
   tagsRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: 6,
-    marginTop: 8,
+    marginTop: 10,
   },
   tagPill: {
     flexDirection: 'row',
@@ -379,13 +423,14 @@ const styles = StyleSheet.create({
     color: COLORS.textSecondary,
   },
   thumbContainer: {
-    width: 82,
-    height: 82,
+    width: 68,
+    height: 68,
     borderRadius: RADIUS.input,
     overflow: 'hidden',
     backgroundColor: COLORS.surfaceElevated,
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.08)',
+    marginLeft: 4,
   },
   thumbnail: {
     width: '100%',
