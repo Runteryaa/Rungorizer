@@ -42,6 +42,25 @@ jobs:
       - name: 📦 Install Dependencies
         run: npm install --legacy-peer-deps
 
+      - name: 🚀 Publish EAS Update (OTA) Before Build
+        continue-on-error: true
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+          EAS_SKIP_AUTO_FINGERPRINT: 1
+        run: |
+          if [ -z "$EXPO_TOKEN" ]; then
+            echo "⚠️ EXPO_TOKEN secret is not set in GitHub repository settings. Skipping OTA update publish."
+          else
+            TARGET_BRANCH="${GITHUB_REF_NAME}"
+            if [ "$TARGET_BRANCH" = "beta" ]; then
+              UPDATE_BRANCH="beta"
+            else
+              UPDATE_BRANCH="production"
+            fi
+            echo "Publishing EAS Update for branch: $UPDATE_BRANCH..."
+            npx eas-cli update --branch "$UPDATE_BRANCH" --platform android --environment production --non-interactive -m "Automated OTA update from CI (#${{ github.run_number }})"
+          fi
+
       - name: 🛠 Prebuild Android
         run: npx expo prebuild --platform android --clean
 
@@ -53,12 +72,21 @@ jobs:
           sed -i 's/reactNativeArchitectures=.*/reactNativeArchitectures=arm64-v8a/' android/gradle.properties 2>/dev/null || true
           grep -q 'reactNativeArchitectures' android/gradle.properties || echo 'reactNativeArchitectures=arm64-v8a' >> android/gradle.properties
 
-          # Set EXPO_UPDATES_CHANNEL in AndroidManifest.xml
+          # Configure OTA Update channel in AndroidManifest.xml
           UPDATE_CHANNEL="production"
           if [ "${GITHUB_REF_NAME}" = "beta" ]; then
             UPDATE_CHANNEL="beta"
           fi
-          echo "Setting EXPO_UPDATES_CHANNEL to $UPDATE_CHANNEL"
+          echo "Setting update channel to $UPDATE_CHANNEL"
+
+          # Inject UPDATES_CONFIGURATION_REQUEST_HEADERS_KEY with channel name
+          if grep -q "UPDATES_CONFIGURATION_REQUEST_HEADERS_KEY" android/app/src/main/AndroidManifest.xml; then
+            sed -i "s|UPDATES_CONFIGURATION_REQUEST_HEADERS_KEY\" android:value=\".*\"|UPDATES_CONFIGURATION_REQUEST_HEADERS_KEY\" android:value=\"{\\&quot;expo-channel-name\\&quot;:\\&quot;$UPDATE_CHANNEL\\&quot;}\"|" android/app/src/main/AndroidManifest.xml
+          else
+            sed -i "s|</application>|    <meta-data android:name=\"expo.modules.updates.UPDATES_CONFIGURATION_REQUEST_HEADERS_KEY\" android:value=\"{\\&quot;expo-channel-name\\&quot;:\\&quot;$UPDATE_CHANNEL\\&quot;}\"/>\n  </application>|" android/app/src/main/AndroidManifest.xml
+          fi
+
+          # Also set EXPO_UPDATES_CHANNEL for legacy/fallback
           sed -i "s|</application>|    <meta-data android:name=\"expo.modules.updates.EXPO_UPDATES_CHANNEL\" android:value=\"$UPDATE_CHANNEL\"/>\n  </application>|" android/app/src/main/AndroidManifest.xml
 
       - name: 🏗 Build Release APK
