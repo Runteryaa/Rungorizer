@@ -29,6 +29,35 @@ export default function AddLinkModal() {
 
   const addLink = useLinksStore((state) => state.addLink);
   const isSaving = useLinksStore((state) => state.isSaving);
+  const links = useLinksStore((state) => state.links);
+
+  const existingTags = React.useMemo(() => {
+    const counts: Record<string, number> = {};
+    links.forEach((l) => {
+      try {
+        const list = JSON.parse(l.tags || '[]');
+        if (Array.isArray(list)) {
+          list.forEach((t) => {
+            if (t && typeof t === 'string') {
+              const clean = t.trim().toLowerCase();
+              if (clean) counts[clean] = (counts[clean] || 0) + 1;
+            }
+          });
+        }
+      } catch {}
+    });
+    return Object.keys(counts).slice(0, 5);
+  }, [links]);
+
+  const handleAddTagSuggestion = (tag: string) => {
+    const current = tags
+      .split(',')
+      .map((t) => t.trim())
+      .filter(Boolean);
+    if (!current.includes(tag)) {
+      setTags([...current, tag].join(', '));
+    }
+  };
 
   useEffect(() => {
     Clipboard.hasStringAsync().then((has) => {
@@ -155,6 +184,19 @@ export default function AddLinkModal() {
                   autoCapitalize="none"
                 />
               </View>
+              {existingTags.length > 0 ? (
+                <View style={styles.suggestionRow}>
+                  {existingTags.map((t) => (
+                    <TouchableOpacity
+                      key={t}
+                      onPress={() => handleAddTagSuggestion(t)}
+                      style={styles.suggestionChip}
+                    >
+                      <Text style={styles.suggestionText}>+{t}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              ) : null}
             </View>
 
             {/* Info notice about auto-domain */}
@@ -324,5 +366,24 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '700',
     color: '#ffffff',
+  },
+  suggestionRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+    marginTop: 8,
+  },
+  suggestionChip: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.1)',
+  },
+  suggestionText: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: COLORS.textSecondary,
   },
 });

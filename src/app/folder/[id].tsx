@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import {
   StyleSheet,
   Text,
@@ -18,12 +18,15 @@ import {
   Trash2,
   Globe,
   Layers,
+  CheckSquare,
 } from 'lucide-react-native';
 import { LinkCard } from '../../components/LinkCard';
 import { SearchBar } from '../../components/SearchBar';
 import { EmptyState } from '../../components/EmptyState';
 import { DynamicGlow } from '../../components/DynamicGlow';
 import { FloatingActionButton } from '../../components/FloatingActionButton';
+import { TagFilterBar } from '../../components/TagFilterBar';
+import { BulkActionBar } from '../../components/BulkActionBar';
 import { COLORS, RADIUS, TOUCH, TYPOGRAPHY } from '../../constants/theme';
 import { useLinksStore } from '../../stores/useLinksStore';
 
@@ -34,11 +37,19 @@ export default function FolderDetailScreen() {
   const links = useLinksStore((state) => state.links);
   const updateFolder = useLinksStore((state) => state.updateFolder);
   const deleteFolder = useLinksStore((state) => state.deleteFolder);
+  const bulkDelete = useLinksStore((state) => state.bulkDelete);
+  const bulkSetRead = useLinksStore((state) => state.bulkSetRead);
+  const bulkSetFavorite = useLinksStore((state) => state.bulkSetFavorite);
 
   const folder = folders.find((f) => f.id === id);
 
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState<'all' | 'unread' | 'favorites'>('all');
+  const [selectedTag, setSelectedTag] = useState<string | null>(null);
+
+  // Multi-selection state
+  const [isSelectionMode, setIsSelectionMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
 
   if (!folder) {
     return (
@@ -56,20 +67,54 @@ export default function FolderDetailScreen() {
   const accent = folder.color || COLORS.defaultAccent;
   const isPinned = folder.is_pinned === 1;
 
-  const folderLinks = links.filter((l) => l.folder_id === folder.id);
+  const folderLinks = useMemo(() => {
+    return links.filter((l) => l.folder_id === folder.id);
+  }, [links, folder.id]);
 
-  const filteredLinks = folderLinks.filter((link) => {
-    if (filter === 'unread' && link.is_read === 1) return false;
-    if (filter === 'favorites' && link.is_favorite !== 1) return false;
+  // Derive unique tags from folder's links
+  const folderTags = useMemo(() => {
+    const counts: Record<string, number> = {};
+    folderLinks.forEach((l) => {
+      try {
+        const list = JSON.parse(l.tags || '[]');
+        if (Array.isArray(list)) {
+          list.forEach((t) => {
+            if (t && typeof t === 'string') {
+              const clean = t.trim().toLowerCase();
+              if (clean) counts[clean] = (counts[clean] || 0) + 1;
+            }
+          });
+        }
+      } catch {}
+    });
+    return Object.entries(counts).map(([name, count]) => ({ name, count }));
+  }, [folderLinks]);
 
-    if (!search.trim()) return true;
-    const q = search.toLowerCase();
-    return (
-      (link.title && link.title.toLowerCase().includes(q)) ||
-      (link.description && link.description.toLowerCase().includes(q)) ||
-      (link.clean_url && link.clean_url.toLowerCase().includes(q))
-    );
-  });
+  const filteredLinks = useMemo(() => {
+    return folderLinks.filter((link) => {
+      if (filter === 'unread' && link.is_read === 1) return false;
+      if (filter === 'favorites' && link.is_favorite !== 1) return false;
+
+      if (selectedTag) {
+        try {
+          const list = JSON.parse(link.tags || '[]');
+          if (!Array.isArray(list) || !list.some((t) => t.trim().toLowerCase() === selectedTag.toLowerCase())) {
+            return false;
+          }
+        } catch {
+          return false;
+        }
+      }
+
+      if (!search.trim()) return true;
+      const q = search.toLowerCase();
+      return (
+        (link.title && link.title.toLowerCase().includes(q)) ||
+        (link.description && link.description.toLowerCase().includes(q)) ||
+        (link.clean_url && link.clean_url.toLowerCase().includes(q))
+      );
+    });
+  }, [folderLinks, filter, selectedTag, search]);
 
   const handleTogglePin = async () => {
     await updateFolder(folder.id, { is_pinned: isPinned ? 0 : 1 });
@@ -93,6 +138,50 @@ export default function FolderDetailScreen() {
     );
   };
 
+  const handleToggleSelect = (linkId: string) => {
+    setSelectedIds((prev) =>
+      prev.includes(linkId) ? prev.filter((i) => i !== linkId) : [...prev, linkId]
+    );
+  };
+
+  const handleStartSelection = (initialId?: string) => {
+    setIsSelectionMode(true);
+    if (initialId) {
+      setSelectedIds([initialId]);
+    }
+  };
+
+  const handleToggleSelectAll = () => {
+    if (selectedIds.length === filteredLinks.length) {
+      setSelectedIds([]);
+    } else {
+      setSelectedIds(filteredLinks.map((l) => l.id));
+    }
+  };
+
+  const handleBulkSetRead = async (isRead: boolean) => {
+    await bulkSetRead(selectedIds, isRead);
+    setIsSelectionMode(false);
+    setSelectedIds([]);
+  };
+
+  const handleBulkSetFavorite = async (isFavorite: boolean) => {
+    await bulkSetFavorite(selectedIds, isFavorite);
+    setIsSelectionMode(false);
+    setSelectedIds([]);
+  };
+
+  const handleBulkDelete = async () => {
+    await bulkDelete(selectedIds);
+    setIsSelectionMode(false);
+    setSelectedIds([]);
+  };
+
+  const handleCancelSelection = () => {
+    setIsSelectionMode(false);
+    setSelectedIds([]);
+  };
+
   return (
     <SafeAreaView style={styles.safeArea}>
       <StatusBar style="light" />
@@ -110,6 +199,25 @@ export default function FolderDetailScreen() {
           </TouchableOpacity>
 
           <View style={styles.topRightActions}>
+            {filteredLinks.length > 0 ? (
+              <TouchableOpacity
+                hitSlop={TOUCH.hitSlop}
+                onPress={() => {
+                  if (isSelectionMode) {
+                    handleCancelSelection();
+                  } else {
+                    handleStartSelection();
+                  }
+                }}
+                style={[styles.circleBtn, isSelectionMode && styles.selectActiveBtn]}
+              >
+                <CheckSquare
+                  size={16}
+                  color={isSelectionMode ? COLORS.defaultAccent : COLORS.textTertiary}
+                />
+              </TouchableOpacity>
+            ) : null}
+
             <TouchableOpacity
               hitSlop={TOUCH.hitSlop}
               onPress={handleTogglePin}
@@ -229,21 +337,41 @@ export default function FolderDetailScreen() {
             </Text>
           </TouchableOpacity>
         </View>
+
+        {/* Dynamic Tag Chips within folder */}
+        <TagFilterBar
+          tags={folderTags}
+          selectedTag={selectedTag}
+          onSelectTag={setSelectedTag}
+        />
       </View>
 
       {/* Links List */}
       <FlatList
         data={filteredLinks}
         keyExtractor={(item) => item.id}
-        renderItem={({ item }) => <LinkCard link={item} showDomainBadge={false} />}
-        contentContainerStyle={styles.listContent}
+        renderItem={({ item }) => (
+          <LinkCard
+            link={item}
+            showDomainBadge={false}
+            isSelectionMode={isSelectionMode}
+            isSelected={selectedIds.includes(item.id)}
+            onToggleSelect={handleToggleSelect}
+            onLongPress={() => handleStartSelection(item.id)}
+            onTagPress={(tag) => setSelectedTag(tag)}
+          />
+        )}
+        contentContainerStyle={[
+          styles.listContent,
+          isSelectionMode && { paddingBottom: 150 },
+        ]}
         ListEmptyComponent={
           <EmptyState
             icon={Layers}
-            title={search ? 'Sonuç Bulunamadı' : 'Klasör Boş'}
+            title={search || selectedTag ? 'Sonuç Bulunamadı' : 'Klasör Boş'}
             description={
-              search
-                ? `"${search}" ile eşleşen bir kayıt bulunamadı.`
+              search || selectedTag
+                ? `Seçilen kriterlerle eşleşen bir kayıt bulunamadı.`
                 : `Bu domaine (${folder.domain}) ait henüz kaydedilmiş bir link yok.`
             }
             actionLabel="Link Ekle"
@@ -252,7 +380,20 @@ export default function FolderDetailScreen() {
         }
       />
 
-      <FloatingActionButton onPress={() => router.push('/modal/add-link')} />
+      {/* Bulk Action Bar during selection */}
+      {isSelectionMode ? (
+        <BulkActionBar
+          selectedIds={selectedIds}
+          totalCount={filteredLinks.length}
+          onToggleSelectAll={handleToggleSelectAll}
+          onBulkSetRead={handleBulkSetRead}
+          onBulkSetFavorite={handleBulkSetFavorite}
+          onBulkDelete={handleBulkDelete}
+          onCancel={handleCancelSelection}
+        />
+      ) : (
+        <FloatingActionButton onPress={() => router.push('/modal/add-link')} />
+      )}
     </SafeAreaView>
   );
 }
@@ -263,7 +404,9 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.background, // AMOLED #09090b
   },
   glowWrap: {
-    paddingBottom: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255, 255, 255, 0.08)',
+    paddingBottom: 16,
   },
   topBar: {
     flexDirection: 'row',
@@ -271,34 +414,36 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     paddingHorizontal: 16,
     paddingTop: 12,
+    marginBottom: 12,
   },
   circleBtn: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: COLORS.surfaceElevated,
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: COLORS.surface,
+    borderWidth: 1,
+    borderColor: COLORS.border,
     alignItems: 'center',
     justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.08)',
+  },
+  selectActiveBtn: {
+    borderColor: COLORS.defaultAccent,
+    backgroundColor: 'rgba(59, 130, 246, 0.15)',
   },
   pinActiveBtn: {
-    backgroundColor: 'rgba(245, 158, 11, 0.15)',
-    borderColor: 'rgba(245, 158, 11, 0.4)',
+    borderColor: 'rgba(245, 158, 11, 0.3)',
+    backgroundColor: 'rgba(245, 158, 11, 0.12)',
   },
   deleteCircleBtn: {
-    backgroundColor: 'rgba(239, 68, 68, 0.12)',
-    borderColor: 'rgba(239, 68, 68, 0.25)',
+    borderColor: 'rgba(239, 68, 68, 0.2)',
   },
   topRightActions: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: 10,
   },
   folderHero: {
     paddingHorizontal: 16,
-    paddingTop: 14,
-    paddingBottom: 8,
   },
   heroRow: {
     flexDirection: 'row',
@@ -308,17 +453,18 @@ const styles = StyleSheet.create({
   iconContainer: {
     width: 52,
     height: 52,
-    borderRadius: 16,
-    backgroundColor: COLORS.surface,
+    borderRadius: RADIUS.card,
+    backgroundColor: COLORS.surfaceElevated,
+    borderWidth: 1,
+    borderColor: COLORS.border,
     alignItems: 'center',
     justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.12)',
     overflow: 'hidden',
   },
   iconImage: {
-    width: 30,
-    height: 30,
+    width: 32,
+    height: 32,
+    borderRadius: 6,
   },
   fallbackIcon: {
     width: '100%',
@@ -332,14 +478,14 @@ const styles = StyleSheet.create({
   heroTitle: {
     ...TYPOGRAPHY.screenTitle,
     fontSize: 22,
-    marginBottom: 2,
+    marginBottom: 3,
   },
   heroDomain: {
     ...TYPOGRAPHY.metadata,
   },
   filterSection: {
     paddingHorizontal: 16,
-    paddingTop: 6,
+    paddingTop: 14,
     paddingBottom: 4,
   },
   searchBar: {
@@ -348,10 +494,10 @@ const styles = StyleSheet.create({
   filterRow: {
     flexDirection: 'row',
     gap: 8,
-    marginBottom: 6,
+    marginBottom: 8,
   },
   filterChip: {
-    paddingHorizontal: 12,
+    paddingHorizontal: 13,
     paddingVertical: 6,
     borderRadius: RADIUS.pill,
     backgroundColor: COLORS.surface,
@@ -369,6 +515,7 @@ const styles = StyleSheet.create({
   },
   filterChipTextActive: {
     color: COLORS.defaultAccent,
+    fontWeight: '700',
   },
   listContent: {
     paddingHorizontal: 16,
@@ -379,20 +526,20 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
+    padding: 24,
   },
   errorText: {
-    fontSize: 16,
-    color: COLORS.textSecondary,
-    marginBottom: 14,
+    ...TYPOGRAPHY.cardTitle,
+    marginBottom: 16,
   },
   backBtn: {
-    paddingHorizontal: 18,
-    paddingVertical: 10,
     backgroundColor: COLORS.surfaceElevated,
+    paddingHorizontal: 20,
+    paddingVertical: 10,
     borderRadius: RADIUS.button,
   },
   backBtnText: {
-    color: '#ffffff',
+    color: COLORS.defaultAccent,
     fontWeight: '600',
   },
 });

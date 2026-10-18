@@ -8,6 +8,10 @@ import {
   saveLinkFromMetadata,
   toggleFavorite as dbToggleFavorite,
   toggleRead as dbToggleRead,
+  markLinkAsRead as dbMarkLinkAsRead,
+  bulkDeleteLinks as dbBulkDeleteLinks,
+  bulkSetRead as dbBulkSetRead,
+  bulkSetFavorite as dbBulkSetFavorite,
   deleteLink as dbDeleteLink,
   updateFolder as dbUpdateFolder,
   deleteFolder as dbDeleteFolder,
@@ -31,6 +35,7 @@ interface LinksState {
   isLoading: boolean;
   isSaving: boolean;
   searchQuery: string;
+  selectedTag: string | null;
   activeFilter: 'all' | 'unread' | 'favorites';
   notification: ToastNotification | null;
 
@@ -40,10 +45,15 @@ interface LinksState {
   addLink: (rawText: string, notes?: string, tags?: string[]) => Promise<{ success: boolean; isExisting?: boolean }>;
   toggleFavorite: (id: string) => Promise<void>;
   toggleRead: (id: string) => Promise<void>;
+  markAsRead: (id: string) => Promise<void>;
+  bulkDelete: (ids: string[]) => Promise<void>;
+  bulkSetRead: (ids: string[], isRead: boolean) => Promise<void>;
+  bulkSetFavorite: (ids: string[], isFavorite: boolean) => Promise<void>;
   deleteLink: (id: string) => Promise<void>;
   updateFolder: (id: string, updates: Partial<Pick<FolderRecord, 'display_name' | 'color' | 'is_pinned'>>) => Promise<void>;
   deleteFolder: (id: string) => Promise<void>;
   setSearchQuery: (query: string) => void;
+  setSelectedTag: (tag: string | null) => void;
   setActiveFilter: (filter: 'all' | 'unread' | 'favorites') => void;
   showNotification: (msg: string, sub?: string, type?: 'success' | 'info' | 'error') => void;
   dismissNotification: () => void;
@@ -57,6 +67,7 @@ export const useLinksStore = create<LinksState>((set, get) => ({
   isLoading: true,
   isSaving: false,
   searchQuery: '',
+  selectedTag: null,
   activeFilter: 'all',
   notification: null,
 
@@ -146,6 +157,59 @@ export const useLinksStore = create<LinksState>((set, get) => ({
     await dbToggleRead(id);
   },
 
+  markAsRead: async (id: string) => {
+    // Check if already read to avoid unnecessary updates
+    const current = get().links.find((l) => l.id === id);
+    if (current && current.is_read === 1) return;
+
+    set((state) => ({
+      links: state.links.map((l) =>
+        l.id === id ? { ...l, is_read: 1 } : l
+      ),
+    }));
+    await dbMarkLinkAsRead(id);
+  },
+
+  bulkDelete: async (ids: string[]) => {
+    if (ids.length === 0) return;
+    set((state) => ({
+      links: state.links.filter((l) => !ids.includes(l.id)),
+    }));
+    await dbBulkDeleteLinks(ids);
+    await get().refresh();
+    get().showNotification(`${ids.length} bağlantı silindi`, undefined, 'info');
+  },
+
+  bulkSetRead: async (ids: string[], isRead: boolean) => {
+    if (ids.length === 0) return;
+    set((state) => ({
+      links: state.links.map((l) =>
+        ids.includes(l.id) ? { ...l, is_read: isRead ? 1 : 0 } : l
+      ),
+    }));
+    await dbBulkSetRead(ids, isRead);
+    get().showNotification(
+      isRead ? `${ids.length} bağlantı okundu yapıldı` : `${ids.length} bağlantı okunmadı yapıldı`,
+      undefined,
+      'success'
+    );
+  },
+
+  bulkSetFavorite: async (ids: string[], isFavorite: boolean) => {
+    if (ids.length === 0) return;
+    set((state) => ({
+      links: state.links.map((l) =>
+        ids.includes(l.id) ? { ...l, is_favorite: isFavorite ? 1 : 0 } : l
+      ),
+    }));
+    await dbBulkSetFavorite(ids, isFavorite);
+    get().showNotification(
+      isFavorite ? `${ids.length} bağlantı favorilere eklendi` : `${ids.length} bağlantı favorilerden çıkarıldı`,
+      undefined,
+      'success'
+    );
+  },
+
   deleteLink: async (id: string) => {
     await dbDeleteLink(id);
     await get().refresh();
@@ -166,6 +230,10 @@ export const useLinksStore = create<LinksState>((set, get) => ({
 
   setSearchQuery: (query: string) => {
     set({ searchQuery: query });
+  },
+
+  setSelectedTag: (tag: string | null) => {
+    set({ selectedTag: tag });
   },
 
   setActiveFilter: (filter: 'all' | 'unread' | 'favorites') => {
@@ -192,9 +260,13 @@ export const useLinksStore = create<LinksState>((set, get) => ({
   },
 
   importBackup: async (data: BackupData) => {
-    const result = await importDatabaseBackup(data);
+    const counts = await importDatabaseBackup(data);
     await get().refresh();
-    get().showNotification('Yedek başarıyla yüklendi', `${result.foldersCount} klasör, ${result.linksCount} link`, 'success');
-    return result;
+    get().showNotification(
+      'Yedek Başarıyla İçe Aktarıldı',
+      `${counts.foldersCount} klasör, ${counts.linksCount} link geri yüklendi`,
+      'success'
+    );
+    return counts;
   },
 }));

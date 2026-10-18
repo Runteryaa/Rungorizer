@@ -345,6 +345,41 @@ export async function deleteLink(id: string): Promise<void> {
   await db.runAsync('DELETE FROM links WHERE id = ?', [id]);
 }
 
+export async function markLinkAsRead(id: string): Promise<void> {
+  const db = getDatabase();
+  await db.runAsync('UPDATE links SET is_read = 1, updated_at = ? WHERE id = ? AND is_read = 0', [
+    Date.now(),
+    id,
+  ]);
+}
+
+export async function bulkDeleteLinks(ids: string[]): Promise<void> {
+  if (ids.length === 0) return;
+  const db = getDatabase();
+  const placeholders = ids.map(() => '?').join(',');
+  await db.runAsync(`DELETE FROM links WHERE id IN (${placeholders})`, ids);
+}
+
+export async function bulkSetRead(ids: string[], isRead: boolean): Promise<void> {
+  if (ids.length === 0) return;
+  const db = getDatabase();
+  const placeholders = ids.map(() => '?').join(',');
+  await db.runAsync(
+    `UPDATE links SET is_read = ?, updated_at = ? WHERE id IN (${placeholders})`,
+    [isRead ? 1 : 0, Date.now(), ...ids]
+  );
+}
+
+export async function bulkSetFavorite(ids: string[], isFavorite: boolean): Promise<void> {
+  if (ids.length === 0) return;
+  const db = getDatabase();
+  const placeholders = ids.map(() => '?').join(',');
+  await db.runAsync(
+    `UPDATE links SET is_favorite = ?, updated_at = ? WHERE id IN (${placeholders})`,
+    [isFavorite ? 1 : 0, Date.now(), ...ids]
+  );
+}
+
 // ================= BACKUP & RESTORE ================= //
 
 export interface BackupData {
