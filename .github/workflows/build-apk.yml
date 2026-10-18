@@ -1,0 +1,93 @@
+name: Build Android APK
+
+on:
+  push:
+    branches:
+      - main
+      - master
+    paths-ignore:
+      - '**.md'
+      - '.gitignore'
+  workflow_dispatch:
+    inputs:
+      build_type:
+        description: 'Derleme Tipi (Release / Debug)'
+        required: true
+        default: 'release'
+        type: choice
+        options:
+          - release
+          - debug
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-apk:
+    name: 🚀 Build APK
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 📥 Checkout repository
+        uses: actions/checkout@v4
+
+      - name: 🟢 Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: ☕ Setup Java JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: 📱 Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: 📦 Install Dependencies
+        run: |
+          npm install --legacy-peer-deps
+
+      - name: ⚙️ Expo Prebuild (Continuous Native Generation)
+        run: |
+          npx expo prebuild --platform android --clean
+
+      - name: 🔨 Build Android APK with Gradle
+        working-directory: android
+        run: |
+          chmod +x gradlew
+          if [ "${{ github.event.inputs.build_type }}" = "debug" ]; then
+            echo "Building Debug APK..."
+            ./gradlew assembleDebug --no-daemon --stacktrace
+            cp app/build/outputs/apk/debug/app-debug.apk ../rungorize-debug.apk
+            echo "OUTPUT_FILE=rungorize-debug.apk" >> $GITHUB_ENV
+          else
+            echo "Building Release APK..."
+            # assembleRelease uses debug keystore by default in Expo CNG for standalone installability
+            ./gradlew assembleRelease --no-daemon --stacktrace
+            # Find and copy output APK
+            APK_PATH=$(find app/build/outputs/apk -name "*.apk" | head -n 1)
+            echo "Found APK at: $APK_PATH"
+            cp "$APK_PATH" ../rungorize.apk
+            echo "OUTPUT_FILE=rungorize.apk" >> $GITHUB_ENV
+          fi
+
+      - name: 📤 Upload APK Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: rungorize-android-apk
+          path: ${{ env.OUTPUT_FILE }}
+          retention-days: 30
+
+      - name: 🏷️ Create GitHub Release (On Tag)
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ env.OUTPUT_FILE }}
+          name: Rungorize ${{ github.ref_name }}
+          draft: false
+          prerelease: false
+          generate_release_notes: true

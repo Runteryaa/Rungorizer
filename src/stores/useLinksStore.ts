@@ -1,0 +1,200 @@
+import { create } from 'zustand';
+import {
+  FolderRecord,
+  LinkRecord,
+  initDatabase,
+  getFolders,
+  getLinks,
+  saveLinkFromMetadata,
+  toggleFavorite as dbToggleFavorite,
+  toggleRead as dbToggleRead,
+  deleteLink as dbDeleteLink,
+  updateFolder as dbUpdateFolder,
+  deleteFolder as dbDeleteFolder,
+  exportDatabaseBackup,
+  importDatabaseBackup,
+  BackupData,
+} from '../db/database';
+import { scrapeMetadata } from '../services/metadataScraper';
+import { extractUrlFromText } from '../services/urlCleaner';
+
+export interface ToastNotification {
+  id: string;
+  message: string;
+  subMessage?: string;
+  type: 'success' | 'info' | 'error';
+}
+
+interface LinksState {
+  folders: FolderRecord[];
+  links: LinkRecord[];
+  isLoading: boolean;
+  isSaving: boolean;
+  searchQuery: string;
+  activeFilter: 'all' | 'unread' | 'favorites';
+  notification: ToastNotification | null;
+
+  // Actions
+  initialize: () => Promise<void>;
+  refresh: () => Promise<void>;
+  addLink: (rawText: string, notes?: string, tags?: string[]) => Promise<{ success: boolean; isExisting?: boolean }>;
+  toggleFavorite: (id: string) => Promise<void>;
+  toggleRead: (id: string) => Promise<void>;
+  deleteLink: (id: string) => Promise<void>;
+  updateFolder: (id: string, updates: Partial<Pick<FolderRecord, 'display_name' | 'color' | 'is_pinned'>>) => Promise<void>;
+  deleteFolder: (id: string) => Promise<void>;
+  setSearchQuery: (query: string) => void;
+  setActiveFilter: (filter: 'all' | 'unread' | 'favorites') => void;
+  showNotification: (msg: string, sub?: string, type?: 'success' | 'info' | 'error') => void;
+  dismissNotification: () => void;
+  exportBackup: () => Promise<BackupData>;
+  importBackup: (data: BackupData) => Promise<{ foldersCount: number; linksCount: number }>;
+}
+
+export const useLinksStore = create<LinksState>((set, get) => ({
+  folders: [],
+  links: [],
+  isLoading: true,
+  isSaving: false,
+  searchQuery: '',
+  activeFilter: 'all',
+  notification: null,
+
+  initialize: async () => {
+    try {
+      set({ isLoading: true });
+      await initDatabase();
+      const [folders, links] = await Promise.all([
+        getFolders(),
+        getLinks(),
+      ]);
+      set({ folders, links, isLoading: false });
+    } catch (error) {
+      console.error('Veritabanı başlatma hatası:', error);
+      set({ isLoading: false });
+    }
+  },
+
+  refresh: async () => {
+    try {
+      const [folders, links] = await Promise.all([
+        getFolders(),
+        getLinks(),
+      ]);
+      set({ folders, links });
+    } catch (error) {
+      console.error('Yenileme hatası:', error);
+    }
+  },
+
+  addLink: async (rawText: string, notes?: string, tags?: string[]) => {
+    const url = extractUrlFromText(rawText);
+    if (!url) {
+      get().showNotification('Geçerli bir web bağlantısı bulunamadı', undefined, 'error');
+      return { success: false };
+    }
+
+    set({ isSaving: true });
+    try {
+      const meta = await scrapeMetadata(url);
+      const { link, folder, isExisting } = await saveLinkFromMetadata(meta, notes, tags);
+
+      // Refresh local store
+      await get().refresh();
+
+      if (isExisting) {
+        get().showNotification(
+          `Güncellendi: ${folder.display_name}`,
+          link.title || url,
+          'info'
+        );
+      } else {
+        get().showNotification(
+          `Kaydedildi: ${folder.display_name}`,
+          link.title || url,
+          'success'
+        );
+      }
+
+      set({ isSaving: false });
+      return { success: true, isExisting };
+    } catch (error) {
+      console.error('Link kaydetme hatası:', error);
+      get().showNotification('Link kaydedilirken bir hata oluştu', undefined, 'error');
+      set({ isSaving: false });
+      return { success: false };
+    }
+  },
+
+  toggleFavorite: async (id: string) => {
+    // Optimistic update
+    set((state) => ({
+      links: state.links.map((l) =>
+        l.id === id ? { ...l, is_favorite: l.is_favorite === 1 ? 0 : 1 } : l
+      ),
+    }));
+    await dbToggleFavorite(id);
+  },
+
+  toggleRead: async (id: string) => {
+    // Optimistic update
+    set((state) => ({
+      links: state.links.map((l) =>
+        l.id === id ? { ...l, is_read: l.is_read === 1 ? 0 : 1 } : l
+      ),
+    }));
+    await dbToggleRead(id);
+  },
+
+  deleteLink: async (id: string) => {
+    await dbDeleteLink(id);
+    await get().refresh();
+    get().showNotification('Bağlantı silindi', undefined, 'info');
+  },
+
+  updateFolder: async (id: string, updates) => {
+    await dbUpdateFolder(id, updates);
+    await get().refresh();
+    get().showNotification('Klasör güncellendi', undefined, 'success');
+  },
+
+  deleteFolder: async (id: string) => {
+    await dbDeleteFolder(id);
+    await get().refresh();
+    get().showNotification('Klasör ve içeriği silindi', undefined, 'info');
+  },
+
+  setSearchQuery: (query: string) => {
+    set({ searchQuery: query });
+  },
+
+  setActiveFilter: (filter: 'all' | 'unread' | 'favorites') => {
+    set({ activeFilter: filter });
+  },
+
+  showNotification: (message: string, subMessage?: string, type: 'success' | 'info' | 'error' = 'success') => {
+    set({
+      notification: {
+        id: Date.now().toString(),
+        message,
+        subMessage,
+        type,
+      },
+    });
+  },
+
+  dismissNotification: () => {
+    set({ notification: null });
+  },
+
+  exportBackup: async () => {
+    return await exportDatabaseBackup();
+  },
+
+  importBackup: async (data: BackupData) => {
+    const result = await importDatabaseBackup(data);
+    await get().refresh();
+    get().showNotification('Yedek başarıyla yüklendi', `${result.foldersCount} klasör, ${result.linksCount} link`, 'success');
+    return result;
+  },
+}));
